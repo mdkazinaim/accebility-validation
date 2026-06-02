@@ -1,0 +1,166 @@
+/* =======================
+   📦 Font Imports
+========================== */
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=Montserrat:ital,wght@0,100..900;1,100..900&family=Poppins:ital,wght@0,100..900;1,100..900&display=swap");
+
+/* =======================
+   📦 Tailwind Import
+========================== */
+@import "tailwindcss";
+
+/* =======================
+   🌈 Root Design Tokens
+========================== */
+:root {
+  /* --- Light Mode (Default) --- */
+  --primary-background: #ffffff;
+  --light-background: #f1f5f9;
+  --primary-brand: #161e49;
+  --secondary-brand: #0082fa;
+  --primary-text: #161e49;
+  --secondary-text: #64748b;
+  
+  --border-color: #e2e8f0;
+  --bg-stripe-1: #ffffff;
+  --bg-stripe-2: #f8fafc;
+
+  --primary-green: #08ad36;
+  --light-green: #08ad361a;
+  --primary-yellow: #fcab3f;
+  --light-yellow: #fcab3f1a;
+  --primary-red: #ff0000;
+  --light-red: #ff00001a;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 222.2 84% 4.9%;
+}
+
+.dark {
+  /* --- Dark Mode Palette --- */
+  --primary-background: #020617;
+  --light-background: #0f172a;
+  --primary-brand: #1e293b;
+  --secondary-brand: #3b82f6;
+  --primary-text: #f8fafc;
+  --secondary-text: #94a3b8;
+  
+  --border-color: #1e293b;
+  --bg-stripe-1: #0f172a;
+  --bg-stripe-2: #020617;
+
+  --popover: 222.2 84% 4.9%;
+  --popover-foreground: 210 40% 98%;
+}
+
+/* =======================
+   🎨 Tailwind Theme Configuration
+========================== */
+@theme {
+  /* Colors */
+  --color-primary-background: var(--primary-background);
+  --color-light-background: var(--light-background);
+  --color-primary-brand: var(--primary-brand);
+  --color-secondary-brand: var(--secondary-brand);
+  --color-primary-text: var(--primary-text);
+  --color-secondary-text: var(--secondary-text);
+  --color-border: var(--border-color);
+  
+  --color-primary-green: var(--primary-green);
+  --color-light-green: var(--light-green);
+  --color-primary-red: var(--primary-red);
+  --color-primary-yellow: var(--primary-yellow);
+  --color-stripe-1: var(--bg-stripe-1);
+  --color-stripe-2: var(--bg-stripe-2);
+  
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+
+  /* Fonts */
+  --font-montserrat: var(--font-main);
+  --font-poppins: var(--font-secondary);
+}
+
+/* =======================
+   ✨ Base Styles
+========================== */
+@layer base {
+  html,
+  body {
+    font-family: var(--font-main);
+    background-color: var(--primary-background);
+    color: var(--primary-text);
+    line-height: var(--leading-normal);
+  }
+
+  *:focus,
+  *:focus-visible {
+    outline: none !important;
+    box-shadow: none !important;
+  }
+
+  /* Typography Hierarchy */
+  h1 {
+    font-size: clamp(var(--text-3xl), 3vw + 1rem, var(--text-4xl));
+    font-weight: 600;
+    line-height: var(--leading-tight);
+  }
+
+  h2 {
+    font-size: clamp(var(--text-xl), 2vw + 0.5rem, var(--text-2xl));
+    font-weight: 600;
+    line-height: var(--leading-snug);
+  }
+
+  h3 {
+    font-size: clamp(var(--text-lg), 2vw + 0.25rem, var(--text-xl));
+    font-weight: 500;
+    line-height: var(--leading-snug);
+  }
+
+  h4 {
+    font-size: var(--text-lg);
+    font-weight: 500;
+  }
+
+  h5 {
+    font-size: var(--text-base);
+    font-weight: 400;
+  }
+
+  h6 {
+    font-size: var(--text-sm);
+    font-weight: 400;
+    color: var(--light-gray);
+  }
+
+  p {
+    font-size: var(--text-base);
+    font-weight: 500;
+    line-height: var(--leading-relaxed);
+  }
+}
+
+/* =======================
+   🧩 Component Styles
+========================== */
+@layer components {
+  .custom-checkbox {
+    @apply appearance-none h-4 w-4 border-2 rounded cursor-pointer transition-all duration-200;
+    border-color: var(--primary-blue);
+  }
+
+  .custom-checkbox:checked {
+    background-color: var(--primary-blue);
+    box-shadow: 0 0 0 4px var(--light-green);
+  }
+
+  .custom-checkbox-red {
+    @apply appearance-none h-4 w-4 border-2 rounded cursor-pointer transition-all duration-200;
+    border-color: var(--primary-red);
+  }
+
+  .custom-checkbox-red:checked {
+    background-color: var(--primary-red);
+    box-shadow: 0 0 0 4px var(--light-red);
+  }
+}
