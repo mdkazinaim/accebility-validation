@@ -17,7 +17,7 @@
   ],
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && node vite-build.js",
     "lint": "eslint .",
     "preview": "vite preview"
   },

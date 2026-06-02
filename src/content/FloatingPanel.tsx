@@ -1,0 +1,737 @@
+import React, { useState, useEffect } from "react";
+import { 
+  X, 
+  MousePointer, 
+  Type, 
+  Palette, 
+  Image, 
+  Copy, 
+  Check, 
+  ExternalLink,
+  ChevronRight,
+  ChevronLeft,
+  Sparkles,
+  Pipette
+} from "lucide-react";
+import { ElementStyles } from "./styleExtractor";
+import { extractPalette, generateSuggestions, rgbToHex, scanPageColors } from "./kmeans";
+
+interface FloatingPanelProps {
+  inspectorActive: boolean;
+  setInspectorActive: (active: boolean) => void;
+  lockedElement: HTMLElement | null;
+  lockedStyles: ElementStyles | null;
+  onClearLocked: () => void;
+  onClose: () => void;
+  activeTab: "inspect" | "colors" | "fonts" | "images";
+  setActiveTab: (tab: "inspect" | "colors" | "fonts" | "images") => void;
+}
+
+interface ScannedFont {
+  family: string;
+  count: number;
+}
+
+interface ScannedFontSize {
+  size: string;
+  count: number;
+}
+
+interface ScannedImage {
+  src: string;
+  tagName: string;
+  alt: string;
+  dimensions: { width: number; height: number };
+}
+
+export const FloatingPanel: React.FC<FloatingPanelProps> = ({
+  inspectorActive,
+  setInspectorActive,
+  lockedStyles,
+  onClearLocked,
+  onClose,
+  activeTab,
+  setActiveTab,
+}) => {
+  const [isMinimized, setIsMinimized] = useState(false);
+  const [copiedText, setCopiedText] = useState<string | null>(null);
+  
+  // Color tab state
+  const [dominantPalette, setDominantPalette] = useState<string[]>([]);
+  const [selectedColor, setSelectedColor] = useState<string>("#3b82f6");
+  
+  // Fonts tab state
+  const [scannedFamilies, setScannedFamilies] = useState<ScannedFont[]>([]);
+  const [scannedSizes, setScannedSizes] = useState<ScannedFontSize[]>([]);
+  
+  // Images tab state
+  const [scannedImages, setScannedImages] = useState<ScannedImage[]>([]);
+
+  // Listen to native EyeDropper events from ContentApp
+  useEffect(() => {
+    const handleEyedropperColor = (e: Event) => {
+      const color = (e as CustomEvent).detail;
+      if (color) {
+        setSelectedColor(color);
+      }
+    };
+    window.addEventListener("eyedropper-color-selected", handleEyedropperColor);
+    return () => {
+      window.removeEventListener("eyedropper-color-selected", handleEyedropperColor);
+    };
+  }, []);
+
+  // Auto scan on load & when tab changes
+  useEffect(() => {
+    handleExtractPalette();
+    handleScanFonts();
+    handleScanImages();
+  }, []);
+
+  // Copy helper
+  const handleCopy = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedText(text);
+    setTimeout(() => setCopiedText(null), 1500);
+  };
+
+  // Eyedropper API handler
+  const handleEyeDropper = async () => {
+    if (!("EyeDropper" in window)) {
+      alert("EyeDropper API is not supported in this browser. Please use a Chromium-based browser (Chrome, Edge, Brave).");
+      return;
+    }
+    
+    // Temporarily turn off hover inspector if active to prevent conflict
+    const wasInspectorActive = inspectorActive;
+    if (wasInspectorActive) setInspectorActive(false);
+
+    try {
+      const eyeDropper = new (window as any).EyeDropper();
+      const result = await eyeDropper.open();
+      if (result && result.sRGBHex) {
+        setSelectedColor(result.sRGBHex);
+        setActiveTab("colors");
+        setIsMinimized(false);
+      }
+    } catch (e) {
+      console.warn("EyeDropper aborted:", e);
+    } finally {
+      if (wasInspectorActive) setInspectorActive(true);
+    }
+  };
+
+  // Scan and Extract dominant palette
+  const handleExtractPalette = () => {
+    const rawColors = scanPageColors();
+    const hexPalette = extractPalette(rawColors, 8);
+    const cleanPalette = hexPalette.filter(Boolean);
+    setDominantPalette(cleanPalette);
+    if (cleanPalette.length > 0) {
+      setSelectedColor(cleanPalette[0]);
+    }
+  };
+
+  // Scan page typography node-by-node
+  const handleScanFonts = () => {
+    const familyMap: Record<string, number> = {};
+    const sizeMap: Record<string, number> = {};
+    const elements = Array.from(document.querySelectorAll("body, body *"));
+    const maxScan = Math.min(elements.length, 600);
+
+    for (let i = 0; i < maxScan; i++) {
+      const el = elements[i] as HTMLElement;
+      if (!el || el.nodeType !== Node.ELEMENT_NODE) continue;
+
+      let hasText = false;
+      for (let j = 0; j < el.childNodes.length; j++) {
+        const node = el.childNodes[j];
+        if (node.nodeType === Node.TEXT_NODE && node.nodeValue?.trim()) {
+          hasText = true;
+          break;
+        }
+      }
+
+      if (hasText) {
+        try {
+          const style = window.getComputedStyle(el);
+          const family = style.fontFamily.split(",")[0].trim().replace(/['"]/g, "");
+          const size = style.fontSize;
+
+          if (family) familyMap[family] = (familyMap[family] || 0) + 1;
+          if (size) sizeMap[size] = (sizeMap[size] || 0) + 1;
+        } catch {
+          // ignore styled errors
+        }
+      }
+    }
+
+    const families = Object.entries(familyMap)
+      .map(([family, count]) => ({ family, count }))
+      .sort((a, b) => b.count - a.count);
+
+    const sizes = Object.entries(sizeMap)
+      .map(([size, count]) => ({ size, count }))
+      .sort((a, b) => (parseFloat(b.size) || 0) - (parseFloat(a.size) || 0));
+
+    setScannedFamilies(families);
+    setScannedSizes(sizes);
+  };
+
+  // Scan images
+  const handleScanImages = () => {
+    const images: ScannedImage[] = [];
+    const srcSet = new Set<string>();
+
+    // Scan image elements
+    const imgElements = Array.from(document.querySelectorAll("img"));
+    for (const img of imgElements) {
+      const src = img.src;
+      if (src && !src.startsWith("data:") && !srcSet.has(src)) {
+        srcSet.add(src);
+        images.push({
+          src,
+          tagName: "img",
+          alt: img.alt || "No alternative text",
+          dimensions: {
+            width: img.naturalWidth || img.clientWidth || 0,
+            height: img.naturalHeight || img.clientHeight || 0,
+          }
+        });
+      }
+    }
+
+    // Scan element background images
+    const allElements = Array.from(document.querySelectorAll("body, body *"));
+    const maxBgCheck = Math.min(allElements.length, 300);
+    for (let i = 0; i < maxBgCheck; i++) {
+      const el = allElements[i] as HTMLElement;
+      try {
+        const style = window.getComputedStyle(el);
+        const bgImg = style.backgroundImage;
+        if (bgImg && bgImg !== "none") {
+          const match = bgImg.match(/url\(['"]?(.*?)['"]?\)/);
+          if (match && match[1] && !match[1].startsWith("data:") && !srcSet.has(match[1])) {
+            srcSet.add(match[1]);
+            images.push({
+              src: match[1],
+              tagName: el.tagName.toLowerCase(),
+              alt: "CSS Background Image",
+              dimensions: {
+                width: el.clientWidth || 0,
+                height: el.clientHeight || 0,
+              }
+            });
+          }
+        }
+      } catch {
+        // ignore styled errors
+      }
+    }
+
+    setScannedImages(images);
+  };
+
+  // Harmony generators
+  const harmonies = generateSuggestions(selectedColor);
+
+  // If minimized, display a sleek collapsed trigger tab
+  if (isMinimized) {
+    return (
+      <button 
+        onClick={() => setIsMinimized(false)}
+        className="fixed right-0 top-1/4 z-[100000] bg-slate-900 text-white p-3 rounded-l-xl border-l-2 border-y border-blue-500 shadow-2xl hover:bg-slate-800 transition-all flex flex-col items-center gap-2 cursor-pointer group"
+      >
+        <ChevronLeft className="w-5 h-5 text-blue-400 group-hover:-translate-x-0.5 transition-transform" />
+        <span className="text-[10px] tracking-widest font-bold uppercase [writing-mode:vertical-lr] select-none text-slate-300">
+          Inspector
+        </span>
+      </button>
+    );
+  }
+
+  // Contrast calculations for inspection card
+  const contrastRatio = lockedStyles ? lockedStyles.contrastRatio : 1;
+  const isLargeText = lockedStyles 
+    ? (parseFloat(lockedStyles.fontSize) >= 24 || (parseFloat(lockedStyles.fontSize) >= 18.6 && parseInt(lockedStyles.fontWeight, 10) >= 700))
+    : false;
+
+  const aaPassed = isLargeText ? contrastRatio >= 3.0 : contrastRatio >= 4.5;
+  const aaaPassed = isLargeText ? contrastRatio >= 4.5 : contrastRatio >= 7.0;
+
+  return (
+    <div className="fixed right-4 top-4 bottom-4 w-96 bg-slate-950/95 backdrop-blur-md text-slate-100 rounded-2xl border border-slate-800 shadow-2xl z-[100000] flex flex-col overflow-hidden font-sans">
+      
+      {/* Header Panel */}
+      <div className="p-4 border-b border-slate-900 bg-slate-900/30 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Sparkles className="w-5 h-5 text-blue-500 animate-pulse" />
+          <div>
+            <h2 className="text-sm font-bold tracking-wider uppercase text-white">Visual Inspector</h2>
+            <p className="text-[10px] text-slate-400">Design & Accessibility Scanner</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5">
+          {/* Eyedropper API Button */}
+          {"EyeDropper" in window && (
+            <button
+              onClick={handleEyeDropper}
+              title="Pick pixel color from screen"
+              className="p-1.5 rounded-lg bg-slate-900 border border-slate-800 hover:bg-slate-800 text-blue-400 hover:text-blue-300 transition-all cursor-pointer"
+            >
+              <Pipette className="w-4 h-4" />
+            </button>
+          )}
+          {/* Minimize Button */}
+          <button 
+            onClick={() => setIsMinimized(true)}
+            title="Minimize Panel"
+            className="p-1.5 rounded-lg bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-all cursor-pointer"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+          {/* Close Button */}
+          <button 
+            onClick={onClose}
+            title="Close Extension Overlay"
+            className="p-1.5 rounded-lg bg-red-950/50 border border-red-900/30 hover:bg-red-950/80 text-red-400 hover:text-red-300 transition-all cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Main Controls - Hover Inspector State (Always Visible) */}
+      <div className="px-4 py-3 bg-slate-900/50 border-b border-slate-900 flex items-center justify-between gap-3">
+        <div className="flex flex-col">
+          <span className="text-xs font-semibold text-slate-300">Hover Inspector</span>
+          <span className="text-[10px] text-slate-500">
+            {inspectorActive ? "Click element to inspect properties" : "Activate to hover and inspect styles"}
+          </span>
+        </div>
+        <button
+          onClick={() => setInspectorActive(!inspectorActive)}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-md ${
+            inspectorActive 
+              ? "bg-blue-600 hover:bg-blue-700 text-white ring-2 ring-blue-400/20" 
+              : "bg-slate-800 hover:bg-slate-700 text-slate-300"
+          }`}
+        >
+          <MousePointer className={`w-3.5 h-3.5 ${inspectorActive ? "animate-bounce" : ""}`} />
+          {inspectorActive ? "Active" : "Disabled"}
+        </button>
+      </div>
+
+      {/* Tab Navigation */}
+      <div className="flex border-b border-slate-900 bg-slate-950">
+        <button 
+          onClick={() => setActiveTab("inspect")}
+          className={`flex-1 py-3 text-xs font-bold transition-all border-b-2 flex flex-col items-center gap-1 cursor-pointer ${
+            activeTab === "inspect" ? "border-blue-500 text-blue-400 bg-slate-900/10" : "border-transparent text-slate-400 hover:text-slate-200"
+          }`}
+        >
+          <MousePointer className="w-4 h-4" />
+          <span>Inspect</span>
+        </button>
+        <button 
+          onClick={() => { setActiveTab("colors"); handleExtractPalette(); }}
+          className={`flex-1 py-3 text-xs font-bold transition-all border-b-2 flex flex-col items-center gap-1 cursor-pointer ${
+            activeTab === "colors" ? "border-blue-500 text-blue-400 bg-slate-900/10" : "border-transparent text-slate-400 hover:text-slate-200"
+          }`}
+        >
+          <Palette className="w-4 h-4" />
+          <span>Colors</span>
+        </button>
+        <button 
+          onClick={() => { setActiveTab("fonts"); handleScanFonts(); }}
+          className={`flex-1 py-3 text-xs font-bold transition-all border-b-2 flex flex-col items-center gap-1 cursor-pointer ${
+            activeTab === "fonts" ? "border-blue-500 text-blue-400 bg-slate-900/10" : "border-transparent text-slate-400 hover:text-slate-200"
+          }`}
+        >
+          <Type className="w-4 h-4" />
+          <span>Fonts</span>
+        </button>
+        <button 
+          onClick={() => { setActiveTab("images"); handleScanImages(); }}
+          className={`flex-1 py-3 text-xs font-bold transition-all border-b-2 flex flex-col items-center gap-1 cursor-pointer ${
+            activeTab === "images" ? "border-blue-500 text-blue-400 bg-slate-900/10" : "border-transparent text-slate-400 hover:text-slate-200"
+          }`}
+        >
+          <Image className="w-4 h-4" />
+          <span>Images</span>
+        </button>
+      </div>
+
+      {/* Tab Panels */}
+      <div className="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-4">
+        
+        {/* INSPECT ELEMENT PANEL */}
+        {activeTab === "inspect" && (
+          lockedStyles ? (
+            <div className="space-y-4 animate-fade-in">
+              {/* Element Heading Info */}
+              <div className="bg-slate-900/50 p-3 rounded-xl border border-slate-800">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-sm font-bold text-blue-400 font-mono">
+                    &lt;{lockedStyles.tagName}&gt;
+                  </span>
+                  <span className="text-[10px] px-2 py-0.5 bg-slate-800 rounded text-slate-400 font-mono">
+                    {lockedStyles.dimensions.width}px × {lockedStyles.dimensions.height}px
+                  </span>
+                </div>
+                <div className="text-[10px] text-slate-400 font-mono max-h-16 overflow-y-auto break-all">
+                  {lockedStyles.className ? `.${lockedStyles.className.trim().split(/\s+/).join(".")}` : "No CSS classes"}
+                </div>
+              </div>
+
+              {/* Typography Details */}
+              <div className="bg-slate-900/50 p-3 rounded-xl border border-slate-800 space-y-2">
+                <h3 className="text-xs font-bold tracking-wider uppercase text-slate-400 border-b border-slate-800 pb-1">
+                  Typography Properties
+                </h3>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <div className="text-[10px] text-slate-500 font-semibold uppercase">Font Size</div>
+                    <div className="text-white font-mono">{lockedStyles.fontSize}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-slate-500 font-semibold uppercase">Font Weight</div>
+                    <div className="text-white font-mono">{lockedStyles.fontWeight}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-slate-500 font-semibold uppercase">Line Height</div>
+                    <div className="text-white font-mono">{lockedStyles.lineHeight}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-slate-500 font-semibold uppercase">Letter Spacing</div>
+                    <div className="text-white font-mono">{lockedStyles.letterSpacing}</div>
+                  </div>
+                  <div className="col-span-2">
+                    <div className="text-[10px] text-slate-500 font-semibold uppercase">Font Family Chain</div>
+                    <div className="text-white break-words text-[11px] font-mono mt-0.5">
+                      {lockedStyles.fontFamily}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Color Details & WCAG Contrast */}
+              <div className="bg-slate-900/50 p-3 rounded-xl border border-slate-800 space-y-2.5">
+                <h3 className="text-xs font-bold tracking-wider uppercase text-slate-400 border-b border-slate-800 pb-1">
+                  Colors & Contrast Ratio
+                </h3>
+                
+                {/* Foreground & Background colors */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div 
+                    onClick={() => {
+                      const hex = rgbToHex(lockedStyles.textColorRGB);
+                      setSelectedColor(hex);
+                      setActiveTab("colors");
+                    }}
+                    className="bg-slate-950 p-2 rounded-lg border border-slate-850 flex items-center gap-2 cursor-pointer hover:border-slate-700 transition-all"
+                  >
+                    <div 
+                      className="w-6 h-6 rounded-md border border-slate-750 shrink-0" 
+                      style={{ backgroundColor: lockedStyles.color }}
+                    />
+                    <div className="overflow-hidden">
+                      <div className="text-[8px] text-slate-500 font-bold uppercase">Text Color</div>
+                      <div className="text-white font-mono text-[10px] truncate">{rgbToHex(lockedStyles.textColorRGB)}</div>
+                    </div>
+                  </div>
+
+                  <div 
+                    onClick={() => {
+                      const hex = rgbToHex(lockedStyles.bgColorRGB);
+                      setSelectedColor(hex);
+                      setActiveTab("colors");
+                    }}
+                    className="bg-slate-950 p-2 rounded-lg border border-slate-850 flex items-center gap-2 cursor-pointer hover:border-slate-700 transition-all"
+                  >
+                    <div 
+                      className="w-6 h-6 rounded-md border border-slate-750 shrink-0" 
+                      style={{ backgroundColor: rgbToHex(lockedStyles.bgColorRGB) }}
+                    />
+                    <div className="overflow-hidden">
+                      <div className="text-[8px] text-slate-500 font-bold uppercase">Background</div>
+                      <div className="text-white font-mono text-[10px] truncate">{rgbToHex(lockedStyles.bgColorRGB)}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* WCAG Contrast Ratio Checker */}
+                <div className="bg-slate-950 p-3 rounded-lg border border-slate-850 flex items-center justify-between">
+                  <div>
+                    <div className="text-[9px] text-slate-500 font-bold uppercase">WCAG 2.1 Contrast</div>
+                    <div className="text-lg font-black text-white font-mono">
+                      {contrastRatio.toFixed(2)}:1
+                    </div>
+                  </div>
+                  
+                  <div className="flex gap-2">
+                    <div className="flex flex-col items-center">
+                      <span className="text-[8px] font-bold text-slate-500">AA</span>
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-black ${
+                        aaPassed ? "bg-emerald-950 text-emerald-400 border border-emerald-900/30" : "bg-red-950 text-red-400 border border-red-900/30"
+                      }`}>
+                        {aaPassed ? "PASS" : "FAIL"}
+                      </span>
+                    </div>
+                    <div className="flex flex-col items-center">
+                      <span className="text-[8px] font-bold text-slate-500">AAA</span>
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-black ${
+                        aaaPassed ? "bg-emerald-950 text-emerald-400 border border-emerald-900/30" : "bg-red-950 text-red-400 border border-red-900/30"
+                      }`}>
+                        {aaaPassed ? "PASS" : "FAIL"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Clear locked item button */}
+              <button
+                onClick={onClearLocked}
+                className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 font-bold text-xs rounded-xl border border-slate-800 hover:text-white transition-all cursor-pointer"
+              >
+                Clear Selected Element
+              </button>
+            </div>
+          ) : (
+            <div className="h-48 flex flex-col items-center justify-center text-center p-4 text-slate-500">
+              <MousePointer className="w-8 h-8 text-slate-700 mb-2 animate-bounce" />
+              <p className="text-xs font-semibold text-slate-400">No element selected</p>
+              <p className="text-[10px] mt-1">Activate the Hover Inspector, then hover and click on any element on the page to view detailed measurements.</p>
+            </div>
+          )
+        )}
+
+        {/* COLORS PANEL */}
+        {activeTab === "colors" && (
+          <div className="space-y-4 animate-fade-in">
+            <div className="flex items-center justify-between border-b border-slate-900 pb-2">
+              <h3 className="text-xs font-bold tracking-wider uppercase text-slate-400">
+                Page Color Extractor
+              </h3>
+              <button 
+                onClick={handleExtractPalette}
+                className="text-[10px] px-2 py-1 bg-slate-900 hover:bg-slate-850 text-blue-400 border border-slate-800 rounded font-semibold cursor-pointer transition-all"
+              >
+                Rescan Page
+              </button>
+            </div>
+
+            {/* Dominant Palette List */}
+            <div>
+              <div className="text-[10px] text-slate-500 font-bold uppercase mb-2">Dominant Colors (K-Means Centroids)</div>
+              {dominantPalette.length > 0 ? (
+                <div className="grid grid-cols-4 gap-2">
+                  {dominantPalette.map((color, i) => (
+                    <div 
+                      key={i}
+                      onClick={() => setSelectedColor(color)}
+                      className={`group relative rounded-xl border p-1 bg-slate-900 cursor-pointer transition-all flex flex-col items-center ${
+                        selectedColor === color ? "border-blue-500 ring-2 ring-blue-500/20" : "border-slate-800 hover:border-slate-700"
+                      }`}
+                    >
+                      <div 
+                        className="w-full aspect-square rounded-lg border border-slate-950" 
+                        style={{ backgroundColor: color }}
+                      />
+                      <span className="text-[8px] font-mono mt-1 text-slate-400 truncate w-full text-center">
+                        {color}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-slate-500">No page colors resolved. Try rescanning.</p>
+              )}
+            </div>
+
+            {/* Harmony Generator for Selected Swatch */}
+            {selectedColor && (
+              <div className="bg-slate-900/50 p-3 rounded-xl border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between border-b border-slate-850 pb-1.5">
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 rounded border border-slate-950" style={{ backgroundColor: selectedColor }} />
+                    <span className="text-xs font-bold text-white font-mono">{selectedColor}</span>
+                  </div>
+                  <button
+                    onClick={() => handleCopy(selectedColor)}
+                    className="p-1 rounded bg-slate-950 border border-slate-850 hover:bg-slate-850 text-slate-400 hover:text-white transition-all cursor-pointer flex items-center gap-1 text-[10px]"
+                  >
+                    {copiedText === selectedColor ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                    <span>{copiedText === selectedColor ? "Copied" : "Copy"}</span>
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  <h4 className="text-[10px] text-slate-500 font-bold uppercase">Generated Color Combinations</h4>
+                  {harmonies.map((scheme, sIdx) => (
+                    <div key={sIdx} className="space-y-1">
+                      <div className="text-[9px] text-slate-400 font-semibold">{scheme.type}</div>
+                      <div className="flex rounded-lg overflow-hidden h-7 border border-slate-950">
+                        {scheme.colors.map((c, cIdx) => (
+                          <div 
+                            key={cIdx} 
+                            style={{ backgroundColor: c }}
+                            onClick={() => setSelectedColor(c)}
+                            title={`Click to inspect: ${c}`}
+                            className="flex-1 cursor-pointer hover:opacity-90 relative group/cell"
+                          >
+                            <span className="absolute inset-0 flex items-center justify-center text-[7px] text-white opacity-0 group-hover/cell:opacity-100 bg-black/40 font-mono transition-opacity">
+                              {c}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* FONTS PANEL */}
+        {activeTab === "fonts" && (
+          <div className="space-y-4 animate-fade-in">
+            <div className="flex items-center justify-between border-b border-slate-900 pb-2">
+              <h3 className="text-xs font-bold tracking-wider uppercase text-slate-400">
+                Site Fonts & Sizes
+              </h3>
+              <button 
+                onClick={handleScanFonts}
+                className="text-[10px] px-2 py-1 bg-slate-900 hover:bg-slate-850 text-blue-400 border border-slate-800 rounded font-semibold cursor-pointer transition-all"
+              >
+                Rescan Page
+              </button>
+            </div>
+
+            {/* Font Families List */}
+            <div className="space-y-2">
+              <div className="text-[10px] text-slate-500 font-bold uppercase">Detected Font Families</div>
+              {scannedFamilies.length > 0 ? (
+                <div className="space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar">
+                  {scannedFamilies.map((font, idx) => (
+                    <div 
+                      key={idx}
+                      className="bg-slate-900/50 px-3 py-2 rounded-lg border border-slate-850 flex items-center justify-between hover:border-slate-800 transition-all"
+                    >
+                      <div className="font-mono text-xs text-white truncate max-w-[200px]" style={{ fontFamily: font.family }}>
+                        {font.family}
+                      </div>
+                      <span className="text-[10px] bg-slate-950 px-2 py-0.5 rounded text-slate-400 font-semibold font-mono">
+                        {font.count} elements
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-slate-500">No font families detected. Run rescan.</p>
+              )}
+            </div>
+
+            {/* Font Sizes List */}
+            <div className="space-y-2 pt-2">
+              <div className="text-[10px] text-slate-500 font-bold uppercase">Detected Font Sizes</div>
+              {scannedSizes.length > 0 ? (
+                <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto custom-scrollbar">
+                  {scannedSizes.slice(0, 14).map((size, idx) => (
+                    <div 
+                      key={idx}
+                      className="bg-slate-900/50 px-2 py-1.5 rounded-lg border border-slate-850 flex items-center justify-between font-mono text-xs"
+                    >
+                      <span className="text-white font-bold">{size.size}</span>
+                      <span className="text-[9px] text-slate-500">{size.count}×</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-slate-500">No font sizes detected.</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* IMAGES PANEL */}
+        {activeTab === "images" && (
+          <div className="space-y-4 animate-fade-in">
+            <div className="flex items-center justify-between border-b border-slate-900 pb-2">
+              <h3 className="text-xs font-bold tracking-wider uppercase text-slate-400">
+                Image Asset Extractor
+              </h3>
+              <button 
+                onClick={handleScanImages}
+                className="text-[10px] px-2 py-1 bg-slate-900 hover:bg-slate-850 text-blue-400 border border-slate-800 rounded font-semibold cursor-pointer transition-all"
+              >
+                Rescan Page
+              </button>
+            </div>
+
+            {/* Scanned Image Grid */}
+            {scannedImages.length > 0 ? (
+              <div className="grid grid-cols-2 gap-3 max-h-[400px] overflow-y-auto custom-scrollbar pr-1">
+                {scannedImages.map((img, idx) => (
+                  <div 
+                    key={idx}
+                    className="bg-slate-900/50 rounded-xl border border-slate-850 overflow-hidden flex flex-col hover:border-slate-800 transition-all group relative"
+                  >
+                    {/* Thumbnail Frame */}
+                    <div className="aspect-video bg-slate-950 flex items-center justify-center overflow-hidden border-b border-slate-900 relative">
+                      <img 
+                        src={img.src} 
+                        alt={img.alt} 
+                        className="max-w-full max-h-full object-contain group-hover:scale-105 transition-transform duration-300"
+                        onError={(e) => {
+                          (e.target as HTMLElement).style.display = "none";
+                        }}
+                      />
+                      {/* Hover Overlay Button to Open Image */}
+                      <a 
+                        href={img.src} 
+                        target="_blank" 
+                        rel="noreferrer"
+                        title="Open image in new tab"
+                        className="absolute inset-0 bg-slate-950/70 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity duration-200 cursor-pointer"
+                      >
+                        <ExternalLink className="w-5 h-5 text-blue-400" />
+                      </a>
+                    </div>
+                    {/* Image Stats */}
+                    <div className="p-2 space-y-0.5 text-[9px] font-mono">
+                      <div className="text-slate-400 truncate" title={img.src}>
+                        {img.src.split("/").pop()}
+                      </div>
+                      <div className="text-slate-500 flex justify-between">
+                        <span>Tag: &lt;{img.tagName}&gt;</span>
+                        <span className="font-bold text-slate-400">
+                          {img.dimensions.width}×{img.dimensions.height}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="h-40 flex flex-col items-center justify-center text-slate-500">
+                <Image className="w-8 h-8 text-slate-850 mb-1" />
+                <span className="text-xs">No image assets located</span>
+              </div>
+            )}
+          </div>
+        )}
+        
+      </div>
+      
+      {/* Footer Info */}
+      <div className="p-3 border-t border-slate-900 bg-slate-950 flex items-center justify-between text-[8px] text-slate-500 tracking-wider uppercase font-mono">
+        <span>Active Tab: {activeTab}</span>
+        <span>Version 1.0.0</span>
+      </div>
+
+    </div>
+  );
+};
