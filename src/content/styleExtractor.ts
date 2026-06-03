@@ -12,6 +12,7 @@ export interface ElementStyles {
   fontFamilyChain: string[];
   fontSize: string;
   fontWeight: string;
+  fontStyle: string;
   lineHeight: string;
   letterSpacing: string;
   color: string;
@@ -20,6 +21,8 @@ export interface ElementStyles {
   bgColorRGB: RGB;
   contrastRatio: number;
   dimensions: { width: number; height: number };
+  margin: string;
+  padding: string;
 }
 
 // Convert rgb/rgba or hex string to RGB
@@ -70,6 +73,26 @@ export function parseColor(colorStr: string): RGB {
   return colors[str] || { r: 0, g: 0, b: 0, a: 1 };
 }
 
+// Convert RGB to HEX
+export function rgbToHex(rgb: RGB): string {
+  const r = Math.round(rgb.r).toString(16).padStart(2, "0");
+  const g = Math.round(rgb.g).toString(16).padStart(2, "0");
+  const b = Math.round(rgb.b).toString(16).padStart(2, "0");
+  return `#${r}${g}${b}`.toUpperCase();
+}
+
+// Get shorthand for margin/padding
+function getShorthand(top: string, right: string, bottom: string, left: string): string {
+  const t = Math.round(parseFloat(top)) || 0;
+  const r = Math.round(parseFloat(right)) || 0;
+  const b = Math.round(parseFloat(bottom)) || 0;
+  const l = Math.round(parseFloat(left)) || 0;
+  if (t === r && r === b && b === l) return `${t}`;
+  if (t === b && r === l) return `${t} ${r}`;
+  if (r === l) return `${t} ${r} ${b}`;
+  return `${t} ${r} ${b} ${l}`;
+}
+
 // Climb DOM tree to find non-transparent background color
 export function resolveBackgroundColor(element: HTMLElement): RGB {
   let el: HTMLElement | null = element;
@@ -113,6 +136,9 @@ export function extractElementStyles(element: HTMLElement): ElementStyles {
   const bgColorRGB = resolveBackgroundColor(element);
   const contrastRatio = getContrastRatio(textColorRGB, bgColorRGB);
 
+  const margin = getShorthand(style.marginTop, style.marginRight, style.marginBottom, style.marginLeft);
+  const padding = getShorthand(style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft);
+
   return {
     tagName: element.tagName.toLowerCase(),
     className: element.className,
@@ -120,6 +146,7 @@ export function extractElementStyles(element: HTMLElement): ElementStyles {
     fontFamilyChain,
     fontSize: style.fontSize,
     fontWeight: style.fontWeight,
+    fontStyle: style.fontStyle || "normal",
     lineHeight: style.lineHeight,
     letterSpacing: style.letterSpacing,
     color: style.color,
@@ -130,6 +157,8 @@ export function extractElementStyles(element: HTMLElement): ElementStyles {
     dimensions: {
       width: Math.round(rect.width),
       height: Math.round(rect.height)
-    }
+    },
+    margin,
+    padding
   };
 }

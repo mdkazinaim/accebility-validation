@@ -84,7 +84,7 @@ export const ContentApp: React.FC = () => {
 
   // Document hover handler (works even if sidebar is closed)
   useEffect(() => {
-    if (!inspectorActive) {
+    if (!inspectorActive || lockedElement) {
       setHoveredElement(null);
       return;
     }
@@ -114,11 +114,11 @@ export const ContentApp: React.FC = () => {
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseleave", handleMouseLeave);
     };
-  }, [inspectorActive]);
+  }, [inspectorActive, lockedElement]);
 
   // Document click handler (locks element and auto-opens sidebar to inspect tab)
   useEffect(() => {
-    if (!inspectorActive) return;
+    if (!inspectorActive || lockedElement) return;
 
     const handleElementClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
@@ -149,7 +149,7 @@ export const ContentApp: React.FC = () => {
     return () => {
       document.removeEventListener("click", handleElementClick, true);
     };
-  }, [inspectorActive]);
+  }, [inspectorActive, lockedElement]);
 
   const handleClearLocked = () => {
     setLockedElement(null);
@@ -176,6 +176,8 @@ export const ContentApp: React.FC = () => {
           borderColor="#10b981" 
           backgroundColor="rgba(16, 185, 129, 0.04)"
           label={`selected: ${lockedElement.tagName.toLowerCase()}`}
+          interactive={true}
+          onClose={handleClearLocked}
         />
       )}
 

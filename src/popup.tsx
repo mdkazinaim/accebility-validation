@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from "react";
 import ReactDOM from "react-dom/client";
-import { 
-  Sparkles, 
-  MousePointer, 
-  Pipette, 
-  Palette, 
-  Type, 
+import {
+  Sparkles,
+  MousePointer,
+  Pipette,
+  Palette,
+  Type,
   Image
 } from "lucide-react";
 import "./index.css";
@@ -88,11 +88,10 @@ const Popup = () => {
         {/* Toggle Inspector Row */}
         <button
           onClick={() => sendTabMessage("toggle-inspector")}
-          className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer ${
-            isHoverActive 
-              ? "bg-blue-600/10 border-blue-500 text-blue-400 font-bold" 
+          className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer ${isHoverActive
+              ? "bg-blue-600/10 border-blue-500 text-blue-400 font-bold"
               : "bg-slate-900/50 border-slate-800 hover:border-slate-700 text-slate-300"
-          }`}
+            }`}
         >
           <div className="flex items-center gap-2.5">
             <MousePointer className={`w-4 h-4 ${isHoverActive ? "text-blue-400 animate-bounce" : "text-slate-400"}`} />
@@ -159,7 +158,7 @@ const Popup = () => {
       {/* Footer / Status Bar */}
       <div className="mt-4 pt-3 border-t border-slate-900 flex items-center justify-between text-[8px] text-slate-500 uppercase tracking-wider font-mono">
         <span>Status: <span className="text-slate-400">{statusMessage}</span></span>
-        <button 
+        <button
           onClick={() => sendTabMessage("toggle-sidebar")}
           className="text-blue-500 hover:text-blue-400 transition-all cursor-pointer font-bold"
         >
