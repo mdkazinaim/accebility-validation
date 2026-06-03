@@ -25,6 +25,8 @@ interface FloatingPanelProps {
   onClose: () => void;
   activeTab: "inspect" | "colors" | "fonts" | "images";
   setActiveTab: (tab: "inspect" | "colors" | "fonts" | "images") => void;
+  showContrastTooltips: boolean;
+  setShowContrastTooltips: (show: boolean) => void;
 }
 
 interface ScannedFont {
@@ -53,6 +55,8 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
   onClose,
   activeTab,
   setActiveTab,
+  showContrastTooltips,
+  setShowContrastTooltips,
 }) => {
   const [activeItemIndex, setActiveItemIndex] = useState(0);
   const [isMinimized, setIsMinimized] = useState(false);
@@ -774,12 +778,24 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
               <h3 className="text-xs font-bold tracking-wider uppercase text-slate-400">
                 Site Fonts & Sizes
               </h3>
-              <button 
-                onClick={handleScanFonts}
-                className="text-[10px] px-2 py-1 bg-slate-900 hover:bg-slate-850 text-blue-400 border border-slate-800 rounded font-semibold cursor-pointer transition-all"
-              >
-                Rescan Page
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button 
+                  onClick={() => setShowContrastTooltips(!showContrastTooltips)}
+                  className={`text-[10px] px-2 py-1 border rounded font-semibold cursor-pointer transition-all ${
+                    showContrastTooltips 
+                      ? "bg-emerald-950/40 border-emerald-600/80 text-emerald-400 font-bold" 
+                      : "bg-slate-900 hover:bg-slate-850 text-slate-300 border-slate-800"
+                  }`}
+                >
+                  {showContrastTooltips ? "Hide Contrast" : "Show Contrast"}
+                </button>
+                <button 
+                  onClick={handleScanFonts}
+                  className="text-[10px] px-2 py-1 bg-slate-900 hover:bg-slate-850 text-blue-400 border border-slate-800 rounded font-semibold cursor-pointer transition-all"
+                >
+                  Rescan Page
+                </button>
+              </div>
             </div>
 
             {/* Font Families List */}

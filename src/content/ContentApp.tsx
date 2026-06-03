@@ -9,6 +9,14 @@ export const ContentApp: React.FC = () => {
   const [hoveredElement, setHoveredElement] = useState<HTMLElement | null>(null);
   const [lockedItems, setLockedItems] = useState<{ element: HTMLElement; styles: ElementStyles }[]>([]);
   const [focusedTab, setFocusedTab] = useState<"inspect" | "colors" | "fonts" | "images">("inspect");
+  const [showContrastTooltips, setShowContrastTooltips] = useState(false);
+  const [contrastTooltips, setContrastTooltips] = useState<{
+    id: string;
+    top: number;
+    left: number;
+    contrastRatio: number;
+    isPassed: boolean;
+  }[]>([]);
 
   // Sync state and respond to messages from popup or background scripts
   useEffect(() => {
@@ -161,11 +169,99 @@ export const ContentApp: React.FC = () => {
     setLockedItems(prev => prev.filter(item => item.element !== element));
   };
 
-  // Sync tab clicks inside FloatingPanel back to our state
+  const scanContrastTooltips = () => {
+    const allElements = Array.from(document.querySelectorAll("*")) as HTMLElement[];
+    const shadowHost = document.getElementById("accessibility-inspector-extension-root");
+
+    const tooltips: {
+      id: string;
+      top: number;
+      left: number;
+      contrastRatio: number;
+      isPassed: boolean;
+    }[] = [];
+
+    const scrollTop = window.scrollY;
+    const scrollLeft = window.scrollX;
+
+    allElements.forEach((el, idx) => {
+      if (shadowHost && shadowHost.contains(el)) return;
+      if (el.offsetWidth === 0 && el.offsetHeight === 0) return;
+
+      // Filter: only select elements that contain direct text content
+      let hasDirectText = false;
+      for (let i = 0; i < el.childNodes.length; i++) {
+        const node = el.childNodes[i];
+        if (node.nodeType === 3 && node.textContent && node.textContent.trim().length > 0) {
+          hasDirectText = true;
+          break;
+        }
+      }
+
+      if (hasDirectText) {
+        try {
+          const rect = el.getBoundingClientRect();
+          if (rect.width < 2 || rect.height < 2) return;
+
+          const styles = extractElementStyles(el);
+          const isLargeText = parseFloat(styles.fontSize) >= 24 || 
+            (parseFloat(styles.fontSize) >= 18.6 && parseInt(styles.fontWeight, 10) >= 700);
+          const isPassed = isLargeText ? styles.contrastRatio >= 3.0 : styles.contrastRatio >= 4.5;
+
+          tooltips.push({
+            id: `contrast-tooltip-${idx}`,
+            top: rect.top + scrollTop,
+            left: rect.left + scrollLeft,
+            contrastRatio: styles.contrastRatio,
+            isPassed
+          });
+        } catch {
+          // ignore
+        }
+      }
+    });
+
+    setContrastTooltips(tooltips);
+  };
+
   useEffect(() => {
-    // FloatingPanel triggers tab set through UI. We can sync it locally by listening or
-    // simply overriding activeTab in FloatingPanel.
-  }, []);
+    if (!showContrastTooltips) {
+      setContrastTooltips([]);
+      return;
+    }
+
+    scanContrastTooltips();
+
+    let scrollTimeout: number;
+    const handleScrollOrResize = () => {
+      cancelAnimationFrame(scrollTimeout);
+      scrollTimeout = requestAnimationFrame(() => {
+        scanContrastTooltips();
+      });
+    };
+
+    window.addEventListener("scroll", handleScrollOrResize, true);
+    window.addEventListener("resize", handleScrollOrResize, true);
+
+    const observer = new MutationObserver(() => {
+      handleScrollOrResize();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    return () => {
+      window.removeEventListener("scroll", handleScrollOrResize, true);
+      window.removeEventListener("resize", handleScrollOrResize, true);
+      observer.disconnect();
+      cancelAnimationFrame(scrollTimeout);
+    };
+  }, [showContrastTooltips]);
+
+  // Turn off contrast tooltips if the user navigates away from the fonts tab
+  useEffect(() => {
+    if (focusedTab !== "fonts") {
+      setShowContrastTooltips(false);
+    }
+  }, [focusedTab]);
 
   return (
     <>
@@ -187,6 +283,47 @@ export const ContentApp: React.FC = () => {
         />
       ))}
 
+      {/* Contrast Tooltips badging overlay */}
+      {showContrastTooltips && contrastTooltips.map((badge) => (
+        <div
+          key={badge.id}
+          style={{
+            position: "absolute",
+            top: Math.max(0, badge.top - 20),
+            left: badge.left,
+            backgroundColor: badge.isPassed ? "#065f46" : "#991b1b",
+            color: "#ffffff",
+            fontSize: "9px",
+            fontWeight: "bold",
+            fontFamily: "monospace",
+            padding: "2px 5px",
+            borderRadius: "4px",
+            border: "1px solid rgba(255, 255, 255, 0.25)",
+            boxShadow: "0 2px 5px rgba(0,0,0,0.35)",
+            pointerEvents: "none",
+            zIndex: 999998,
+            whiteSpace: "nowrap"
+          }}
+        >
+          {badge.contrastRatio.toFixed(1)}:1
+          {/* Caret pointing downwards */}
+          <div
+            style={{
+              position: "absolute",
+              bottom: "-4px",
+              left: "50%",
+              transform: "translateX(-50%)",
+              width: 0,
+              height: 0,
+              borderLeft: "4px solid transparent",
+              borderRight: "4px solid transparent",
+              borderTop: `4px solid ${badge.isPassed ? "#065f46" : "#991b1b"}`,
+              pointerEvents: "none"
+            }}
+          />
+        </div>
+      ))}
+
       {isOpen && (
         <FloatingPanel
           inspectorActive={inspectorActive}
@@ -197,6 +334,8 @@ export const ContentApp: React.FC = () => {
           onClose={() => setIsOpen(false)}
           activeTab={focusedTab}
           setActiveTab={setFocusedTab}
+          showContrastTooltips={showContrastTooltips}
+          setShowContrastTooltips={setShowContrastTooltips}
         />
       )}
     </>
