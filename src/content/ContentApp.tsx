@@ -7,8 +7,7 @@ export const ContentApp: React.FC = () => {
   const [isOpen, setIsOpen] = useState(true); // Overlay starts open
   const [inspectorActive, setInspectorActive] = useState(false);
   const [hoveredElement, setHoveredElement] = useState<HTMLElement | null>(null);
-  const [lockedElement, setLockedElement] = useState<HTMLElement | null>(null);
-  const [lockedStyles, setLockedStyles] = useState<ElementStyles | null>(null);
+  const [lockedItems, setLockedItems] = useState<{ element: HTMLElement; styles: ElementStyles }[]>([]);
   const [focusedTab, setFocusedTab] = useState<"inspect" | "colors" | "fonts" | "images">("inspect");
 
   // Sync state and respond to messages from popup or background scripts
@@ -84,7 +83,7 @@ export const ContentApp: React.FC = () => {
 
   // Document hover handler (works even if sidebar is closed)
   useEffect(() => {
-    if (!inspectorActive || lockedElement) {
+    if (!inspectorActive) {
       setHoveredElement(null);
       return;
     }
@@ -114,11 +113,11 @@ export const ContentApp: React.FC = () => {
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseleave", handleMouseLeave);
     };
-  }, [inspectorActive, lockedElement]);
+  }, [inspectorActive]);
 
   // Document click handler (locks element and auto-opens sidebar to inspect tab)
   useEffect(() => {
-    if (!inspectorActive || lockedElement) return;
+    if (!inspectorActive) return;
 
     const handleElementClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
@@ -132,14 +131,17 @@ export const ContentApp: React.FC = () => {
       e.preventDefault();
       e.stopPropagation();
 
-      try {
-        const styles = extractElementStyles(target);
-        setLockedElement(target);
-        setLockedStyles(styles);
-        setFocusedTab("inspect");
-        setIsOpen(true); // Always open panel when an element is locked
-      } catch (err) {
-        console.warn("Failed style extraction on click", err);
+      // Check if element is already in the selected list
+      const alreadyLocked = lockedItems.some(item => item.element === target);
+      if (!alreadyLocked) {
+        try {
+          const styles = extractElementStyles(target);
+          setLockedItems(prev => [...prev, { element: target, styles }]);
+          setFocusedTab("inspect");
+          setIsOpen(true); // Always open panel when an element is locked
+        } catch (err) {
+          console.warn("Failed style extraction on click", err);
+        }
       }
 
       setHoveredElement(null);
@@ -149,11 +151,14 @@ export const ContentApp: React.FC = () => {
     return () => {
       document.removeEventListener("click", handleElementClick, true);
     };
-  }, [inspectorActive, lockedElement]);
+  }, [inspectorActive, lockedItems]);
 
-  const handleClearLocked = () => {
-    setLockedElement(null);
-    setLockedStyles(null);
+  const handleClearAllLocked = () => {
+    setLockedItems([]);
+  };
+
+  const handleRemoveLockedItem = (element: HTMLElement) => {
+    setLockedItems(prev => prev.filter(item => item.element !== element));
   };
 
   // Sync tab clicks inside FloatingPanel back to our state
@@ -169,25 +174,26 @@ export const ContentApp: React.FC = () => {
         <InspectorOverlay element={hoveredElement} />
       )}
 
-      {/* Selected Element Outline - Persistent if selection locked */}
-      {lockedElement && (
+      {/* Selected Element Outlines - Persistent if selection locked */}
+      {lockedItems.map((item, idx) => (
         <InspectorOverlay 
-          element={lockedElement} 
+          key={`locked-${idx}-${item.element.tagName}`}
+          element={item.element} 
           borderColor="#10b981" 
           backgroundColor="rgba(16, 185, 129, 0.04)"
-          label={`selected: ${lockedElement.tagName.toLowerCase()}`}
+          label={`selected: ${item.element.tagName.toLowerCase()}`}
           interactive={true}
-          onClose={handleClearLocked}
+          onClose={() => handleRemoveLockedItem(item.element)}
         />
-      )}
+      ))}
 
       {isOpen && (
         <FloatingPanel
           inspectorActive={inspectorActive}
           setInspectorActive={setInspectorActive}
-          lockedElement={lockedElement}
-          lockedStyles={lockedStyles}
-          onClearLocked={handleClearLocked}
+          lockedItems={lockedItems}
+          onRemoveLockedItem={handleRemoveLockedItem}
+          onClearAllLocked={handleClearAllLocked}
           onClose={() => setIsOpen(false)}
           activeTab={focusedTab}
           setActiveTab={setFocusedTab}

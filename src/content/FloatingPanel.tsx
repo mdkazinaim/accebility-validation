@@ -19,9 +19,9 @@ import { extractPalette, generateSuggestions, rgbToHex, scanPageColors } from ".
 interface FloatingPanelProps {
   inspectorActive: boolean;
   setInspectorActive: (active: boolean) => void;
-  lockedElement: HTMLElement | null;
-  lockedStyles: ElementStyles | null;
-  onClearLocked: () => void;
+  lockedItems: { element: HTMLElement; styles: ElementStyles }[];
+  onRemoveLockedItem: (element: HTMLElement) => void;
+  onClearAllLocked: () => void;
   onClose: () => void;
   activeTab: "inspect" | "colors" | "fonts" | "images";
   setActiveTab: (tab: "inspect" | "colors" | "fonts" | "images") => void;
@@ -47,12 +47,14 @@ interface ScannedImage {
 export const FloatingPanel: React.FC<FloatingPanelProps> = ({
   inspectorActive,
   setInspectorActive,
-  lockedStyles,
-  onClearLocked,
+  lockedItems,
+  onRemoveLockedItem,
+  onClearAllLocked,
   onClose,
   activeTab,
   setActiveTab,
 }) => {
+  const [activeItemIndex, setActiveItemIndex] = useState(0);
   const [isMinimized, setIsMinimized] = useState(false);
   const [copiedText, setCopiedText] = useState<string | null>(null);
   
@@ -250,6 +252,25 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
     );
   }
 
+  // Sync activeItemIndex bounds when locked items list changes
+  useEffect(() => {
+    if (activeItemIndex >= lockedItems.length) {
+      setActiveItemIndex(Math.max(0, lockedItems.length - 1));
+    }
+  }, [lockedItems, activeItemIndex]);
+
+  // Auto-focus the last added locked item
+  const prevCountRef = React.useRef(lockedItems.length);
+  useEffect(() => {
+    if (lockedItems.length > prevCountRef.current) {
+      setActiveItemIndex(lockedItems.length - 1);
+    }
+    prevCountRef.current = lockedItems.length;
+  }, [lockedItems]);
+
+  const activeItem = lockedItems[activeItemIndex] || null;
+  const lockedStyles = activeItem ? activeItem.styles : null;
+
   // Contrast calculations for inspection card
   const contrastRatio = lockedStyles ? lockedStyles.contrastRatio : 1;
   const isLargeText = lockedStyles 
@@ -369,6 +390,53 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
         {activeTab === "inspect" && (
           lockedStyles ? (
             <div className="space-y-4 animate-fade-in">
+              {/* Selected Elements Horizontal Selector Strip */}
+              {lockedItems.length > 0 && (
+                <div className="space-y-1.5">
+                  <div className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">
+                    Selected Elements ({lockedItems.length})
+                  </div>
+                  <div className="flex gap-1.5 overflow-x-auto pb-2 border-b border-slate-900 scrollbar-thin scrollbar-thumb-slate-850">
+                    {lockedItems.map((item, idx) => {
+                      const isActive = idx === activeItemIndex;
+                      const tagName = item.element.tagName.toLowerCase();
+                      const classPart = item.element.className
+                        ? typeof item.element.className === "string"
+                          ? "." + item.element.className.trim().split(/\s+/)[0]
+                          : ""
+                        : "";
+                      return (
+                        <div
+                          key={`tag-${idx}-${tagName}`}
+                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono transition-all border shrink-0 ${
+                            isActive
+                              ? "bg-blue-600/20 border-blue-500 text-blue-400 font-bold"
+                              : "bg-slate-900/40 border-slate-800 text-slate-400 hover:text-slate-200"
+                          }`}
+                        >
+                          <span 
+                            onClick={() => setActiveItemIndex(idx)}
+                            className="cursor-pointer select-none"
+                          >
+                            {tagName}{classPart.length > 12 ? classPart.slice(0, 12) + "..." : classPart}
+                          </span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onRemoveLockedItem(item.element);
+                            }}
+                            className="text-slate-500 hover:text-red-400 cursor-pointer font-bold ml-1"
+                            style={{ background: "none", border: "none", padding: 0 }}
+                          >
+                            &times;
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* Element Heading Info */}
               <div className="bg-slate-900/50 p-3 rounded-xl border border-slate-800">
                 <div className="flex items-center justify-between mb-1">
@@ -490,13 +558,23 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
                 </div>
               </div>
 
-              {/* Clear locked item button */}
-              <button
-                onClick={onClearLocked}
-                className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 font-bold text-xs rounded-xl border border-slate-800 hover:text-white transition-all cursor-pointer"
-              >
-                Clear Selected Element
-              </button>
+              {/* Clear selected items actions */}
+              <div className="flex gap-2 pt-2">
+                <button
+                  onClick={() => onRemoveLockedItem(activeItem.element)}
+                  className="flex-1 py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 font-bold text-xs rounded-xl border border-slate-800 hover:text-white transition-all cursor-pointer"
+                >
+                  Clear Active Selection
+                </button>
+                {lockedItems.length > 1 && (
+                  <button
+                    onClick={onClearAllLocked}
+                    className="py-2 px-3 bg-red-950/20 hover:bg-red-950/40 text-red-400 font-bold text-xs rounded-xl border border-red-900/30 hover:text-red-350 transition-all cursor-pointer"
+                  >
+                    Clear All
+                  </button>
+                )}
+              </div>
             </div>
           ) : (
             <div className="h-48 flex flex-col items-center justify-center text-center p-4 text-slate-500">
