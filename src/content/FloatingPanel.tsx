@@ -101,9 +101,9 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
     };
   }, [isDragging]);
 
-  const handleMouseDown = (e: React.MouseEvent) => {
-    // Only drag from the header area, prevent dragging on buttons
-    if ((e.target as HTMLElement).closest("button")) return;
+  const handleMouseDown = (e: React.MouseEvent, isMinimizedButton: boolean = false) => {
+    // Prevent dragging if clicking an interactive button inside the main header
+    if (!isMinimizedButton && (e.target as HTMLElement).closest("button")) return;
     setIsDragging(true);
     dragStartPos.current = {
       x: e.clientX - position.x,
@@ -376,13 +376,11 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
   if (isMinimized) {
     return (
       <button
-        onMouseDown={handleMouseDown}
         onClick={() => setIsMinimized(false)}
         style={{
-          top: position.y,
-          left: position.x,
+          top: `${position.y}px`,
         }}
-        className="fixed z-[100000] bg-slate-900 text-white p-3 rounded-l-xl border-l-2 border-y border-blue-500 shadow-2xl hover:bg-slate-800 transition-all flex flex-col items-center gap-2 cursor-pointer group"
+        className="fixed right-0 z-[100000] bg-slate-900 text-white p-3 rounded-l-xl border-l-2 border-y border-blue-500 shadow-2xl hover:bg-slate-800 transition-all flex flex-col items-center gap-2 cursor-pointer group"
       >
         <ChevronLeft className="w-5 h-5 text-blue-400 group-hover:-translate-x-0.5 transition-transform pointer-events-none" />
         <span className="text-[10px] tracking-widest font-bold uppercase [writing-mode:vertical-lr] select-none text-slate-300 pointer-events-none">
@@ -423,8 +421,8 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
   return (
     <div
       style={{
-        top: position.y,
-        left: position.x,
+        top: `${position.y}px`,
+        left: `${position.x}px`,
         height: 'calc(100vh - 32px)'
       }}
       className="fixed w-96 bg-slate-950/95 backdrop-blur-md text-slate-100 rounded-2xl border border-slate-800 shadow-2xl z-[100000] flex flex-col overflow-hidden font-sans"

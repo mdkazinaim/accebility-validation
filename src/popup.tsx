@@ -161,7 +161,10 @@ const Popup = () => {
       <div className="mt-4 pt-3 border-t border-slate-900 flex items-center justify-between text-[8px] text-slate-500 uppercase tracking-wider font-mono">
         <span>Status: <span className="text-slate-400">{statusMessage}</span></span>
         <button
-          onClick={() => sendTabMessage("toggle-sidebar")}
+          onClick={() => {
+            sendTabMessage("toggle-sidebar");
+            window.close();
+          }}
           className="text-blue-500 hover:text-blue-400 transition-all cursor-pointer font-bold"
         >
           Toggle Sidebar
