@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { 
   X, 
   MousePointer, 
@@ -68,6 +68,100 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
   
   // Images tab state
   const [scannedImages, setScannedImages] = useState<ScannedImage[]>([]);
+
+  // Font highlighting state and refs
+  const [highlightedFont, setHighlightedFont] = useState<string | null>(null);
+  const [highlightedSize, setHighlightedSize] = useState<string | null>(null);
+  const highlightedElementsRef = useRef<HTMLElement[]>([]);
+  const originalStylesRef = useRef<Map<HTMLElement, { outline: string; outlineOffset: string; boxShadow: string }>>(new Map());
+
+  const clearFontHighlights = () => {
+    highlightedElementsRef.current.forEach(el => {
+      const orig = originalStylesRef.current.get(el);
+      if (orig) {
+        el.style.outline = orig.outline;
+        el.style.outlineOffset = orig.outlineOffset;
+        el.style.boxShadow = orig.boxShadow;
+      }
+    });
+    highlightedElementsRef.current = [];
+    originalStylesRef.current.clear();
+    setHighlightedFont(null);
+    setHighlightedSize(null);
+  };
+
+  const highlightFontProperty = (type: "family" | "size", value: string) => {
+    clearFontHighlights();
+
+    const allElements = Array.from(document.querySelectorAll("*")) as HTMLElement[];
+    const shadowHost = document.getElementById("accessibility-inspector-extension-root");
+
+    const matches = allElements.filter(el => {
+      if (shadowHost && shadowHost.contains(el)) return false;
+      if (el.offsetWidth === 0 && el.offsetHeight === 0) return false;
+
+      // Ensure we only highlight actual text nodes or form inputs, avoiding structural wrappers
+      const tagName = el.tagName.toLowerCase();
+      const isInput = tagName === "input" || tagName === "textarea" || tagName === "select";
+      let hasDirectText = false;
+      
+      for (let i = 0; i < el.childNodes.length; i++) {
+        const node = el.childNodes[i];
+        if (node.nodeType === 3 && node.textContent && node.textContent.trim().length > 0) {
+          hasDirectText = true;
+          break;
+        }
+      }
+
+      if (!isInput && !hasDirectText) return false;
+
+      try {
+        const computed = window.getComputedStyle(el);
+        if (type === "family") {
+          const cleanFontName = value.toLowerCase().replace(/['"]/g, "");
+          const cleanComputed = computed.fontFamily.toLowerCase().replace(/['"]/g, "");
+          return cleanComputed.includes(cleanFontName);
+        } else {
+          return computed.fontSize === value;
+        }
+      } catch {
+        return false;
+      }
+    });
+
+    if (type === "family") {
+      setHighlightedFont(value);
+    } else {
+      setHighlightedSize(value);
+    }
+
+    matches.forEach(el => {
+      originalStylesRef.current.set(el, {
+        outline: el.style.outline,
+        outlineOffset: el.style.outlineOffset,
+        boxShadow: el.style.boxShadow,
+      });
+
+      el.style.outline = "2px dashed #0082fa";
+      el.style.outlineOffset = "2px";
+      el.style.boxShadow = "0 0 8px rgba(0, 130, 250, 0.5)";
+    });
+
+    highlightedElementsRef.current = matches;
+  };
+
+  // Cleanup highlights on unmount or tab switch
+  useEffect(() => {
+    return () => {
+      clearFontHighlights();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (activeTab !== "fonts") {
+      clearFontHighlights();
+    }
+  }, [activeTab]);
 
   // Listen to native EyeDropper events from ContentApp
   useEffect(() => {
@@ -690,22 +784,53 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
 
             {/* Font Families List */}
             <div className="space-y-2">
-              <div className="text-[10px] text-slate-500 font-bold uppercase">Detected Font Families</div>
+              <div className="text-[10px] text-slate-500 font-bold uppercase flex justify-between items-center">
+                <span>Detected Font Families</span>
+                {(highlightedFont || highlightedSize) && (
+                  <button 
+                    onClick={clearFontHighlights}
+                    className="text-[9px] text-red-400 hover:text-red-300 font-bold cursor-pointer transition-all border-none bg-transparent"
+                  >
+                    Clear Highlights
+                  </button>
+                )}
+              </div>
               {scannedFamilies.length > 0 ? (
-                <div className="space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar">
-                  {scannedFamilies.map((font, idx) => (
-                    <div 
-                      key={idx}
-                      className="bg-slate-900/50 px-3 py-2 rounded-lg border border-slate-850 flex items-center justify-between hover:border-slate-800 transition-all"
-                    >
-                      <div className="font-mono text-xs text-white truncate max-w-[200px]" style={{ fontFamily: font.family }}>
-                        {font.family}
+                <div className="space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar pr-0.5">
+                  {scannedFamilies.map((font, idx) => {
+                    const isHighlighted = highlightedFont === font.family;
+                    return (
+                      <div 
+                        key={`family-${idx}-${font.family}`}
+                        onClick={() => {
+                          if (isHighlighted) {
+                            clearFontHighlights();
+                          } else {
+                            highlightFontProperty("family", font.family);
+                          }
+                        }}
+                        className={`px-3 py-2 rounded-lg border flex items-center justify-between cursor-pointer transition-all ${
+                          isHighlighted 
+                            ? "bg-blue-950/35 border-blue-500/80 shadow-md shadow-blue-500/10" 
+                            : "bg-slate-900/50 border-slate-850 hover:border-slate-800"
+                        }`}
+                      >
+                        <div className="font-mono text-xs text-white truncate max-w-[200px]" style={{ fontFamily: font.family }}>
+                          {font.family}
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          {isHighlighted && (
+                            <span className="text-[8px] bg-blue-500/20 text-blue-400 px-1 py-0.5 rounded font-black tracking-wider uppercase">
+                              Active
+                            </span>
+                          )}
+                          <span className="text-[10px] bg-slate-950 px-2 py-0.5 rounded text-slate-400 font-semibold font-mono">
+                            {font.count}
+                          </span>
+                        </div>
                       </div>
-                      <span className="text-[10px] bg-slate-950 px-2 py-0.5 rounded text-slate-400 font-semibold font-mono">
-                        {font.count} elements
-                      </span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <p className="text-xs text-slate-500">No font families detected. Run rescan.</p>
@@ -716,16 +841,37 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
             <div className="space-y-2 pt-2">
               <div className="text-[10px] text-slate-500 font-bold uppercase">Detected Font Sizes</div>
               {scannedSizes.length > 0 ? (
-                <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto custom-scrollbar">
-                  {scannedSizes.slice(0, 14).map((size, idx) => (
-                    <div 
-                      key={idx}
-                      className="bg-slate-900/50 px-2 py-1.5 rounded-lg border border-slate-850 flex items-center justify-between font-mono text-xs"
-                    >
-                      <span className="text-white font-bold">{size.size}</span>
-                      <span className="text-[9px] text-slate-500">{size.count}×</span>
-                    </div>
-                  ))}
+                <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto custom-scrollbar pr-0.5">
+                  {scannedSizes.slice(0, 14).map((size, idx) => {
+                    const isHighlighted = highlightedSize === size.size;
+                    return (
+                      <div 
+                        key={`size-${idx}-${size.size}`}
+                        onClick={() => {
+                          if (isHighlighted) {
+                            clearFontHighlights();
+                          } else {
+                            highlightFontProperty("size", size.size);
+                          }
+                        }}
+                        className={`px-2 py-1.5 rounded-lg border flex items-center justify-between font-mono text-xs cursor-pointer transition-all ${
+                          isHighlighted 
+                            ? "bg-blue-950/35 border-blue-500/80 shadow-md shadow-blue-500/10" 
+                            : "bg-slate-900/50 border-slate-850 hover:border-slate-800"
+                        }`}
+                      >
+                        <span className="text-white font-bold">{size.size}</span>
+                        <div className="flex items-center gap-1">
+                          {isHighlighted && (
+                            <span className="text-[8px] bg-blue-500/20 text-blue-400 px-1 py-0.5 rounded font-black">
+                              ON
+                            </span>
+                          )}
+                          <span className="text-[9px] text-slate-500">{size.count}×</span>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
                 <p className="text-xs text-slate-500">No font sizes detected.</p>
