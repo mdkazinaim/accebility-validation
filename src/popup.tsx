@@ -55,7 +55,9 @@ const Popup = () => {
             // Re-send message after small delay
             setTimeout(() => {
               chrome.tabs.sendMessage(activeTab.id!, { action, ...payload }, (res) => {
-                if (res) {
+                if (chrome.runtime.lastError || !res) {
+                  setStatusMessage("Failed to connect. Please refresh the page.");
+                } else {
                   setStatusMessage("Connected");
                   if (action === "toggle-inspector") setIsHoverActive(res.inspectorActive);
                 }

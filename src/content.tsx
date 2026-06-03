@@ -3,8 +3,9 @@ import ReactDOM from "react-dom/client";
 import ContentApp from "./content/ContentApp";
 
 function initExtensionOverlay() {
-  if (document.getElementById("accessibility-inspector-extension-root")) {
-    return;
+  const existingContainer = document.getElementById("accessibility-inspector-extension-root");
+  if (existingContainer) {
+    existingContainer.remove();
   }
 
   const container = document.createElement("div");

@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef } from "react";
-import { 
-  X, 
-  MousePointer, 
-  Type, 
-  Palette, 
-  Image, 
-  Copy, 
-  Check, 
+import {
+  X,
+  MousePointer,
+  Type,
+  Palette,
+  Image,
+  Copy,
+  Check,
   ExternalLink,
   ChevronRight,
   ChevronLeft,
@@ -61,15 +61,15 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
   const [activeItemIndex, setActiveItemIndex] = useState(0);
   const [isMinimized, setIsMinimized] = useState(false);
   const [copiedText, setCopiedText] = useState<string | null>(null);
-  
+
   // Color tab state
   const [dominantPalette, setDominantPalette] = useState<string[]>([]);
   const [selectedColor, setSelectedColor] = useState<string>("#3b82f6");
-  
+
   // Fonts tab state
   const [scannedFamilies, setScannedFamilies] = useState<ScannedFont[]>([]);
   const [scannedSizes, setScannedSizes] = useState<ScannedFontSize[]>([]);
-  
+
   // Images tab state
   const [scannedImages, setScannedImages] = useState<ScannedImage[]>([]);
 
@@ -78,6 +78,43 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
   const [highlightedSize, setHighlightedSize] = useState<string | null>(null);
   const highlightedElementsRef = useRef<HTMLElement[]>([]);
   const originalStylesRef = useRef<Map<HTMLElement, { outline: string; outlineOffset: string; boxShadow: string }>>(new Map());
+
+  // Drag state
+  const [position, setPosition] = useState({ x: window.innerWidth - 400, y: 16 });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartPos = useRef({ x: 0, y: 0 });
+
+  useEffect(() => {
+    if (!isDragging) return;
+    const handleMouseMove = (e: MouseEvent) => {
+      setPosition({
+        x: e.clientX - dragStartPos.current.x,
+        y: e.clientY - dragStartPos.current.y
+      });
+    };
+    const handleMouseUp = () => setIsDragging(false);
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isDragging]);
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    // Only drag from the header area, prevent dragging on buttons
+    if ((e.target as HTMLElement).closest("button")) return;
+    setIsDragging(true);
+    dragStartPos.current = {
+      x: e.clientX - position.x,
+      y: e.clientY - position.y
+    };
+  };
+
+  // Reset minimize on tab change
+  useEffect(() => {
+    setIsMinimized(false);
+  }, [activeTab]);
 
   const clearFontHighlights = () => {
     highlightedElementsRef.current.forEach(el => {
@@ -108,7 +145,7 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
       const tagName = el.tagName.toLowerCase();
       const isInput = tagName === "input" || tagName === "textarea" || tagName === "select";
       let hasDirectText = false;
-      
+
       for (let i = 0; i < el.childNodes.length; i++) {
         const node = el.childNodes[i];
         if (node.nodeType === 3 && node.textContent && node.textContent.trim().length > 0) {
@@ -201,7 +238,7 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
       alert("EyeDropper API is not supported in this browser. Please use a Chromium-based browser (Chrome, Edge, Brave).");
       return;
     }
-    
+
     // Temporarily turn off hover inspector if active to prevent conflict
     const wasInspectorActive = inspectorActive;
     if (wasInspectorActive) setInspectorActive(false);
@@ -338,12 +375,17 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
   // If minimized, display a sleek collapsed trigger tab
   if (isMinimized) {
     return (
-      <button 
+      <button
+        onMouseDown={handleMouseDown}
         onClick={() => setIsMinimized(false)}
-        className="fixed right-0 top-1/4 z-[100000] bg-slate-900 text-white p-3 rounded-l-xl border-l-2 border-y border-blue-500 shadow-2xl hover:bg-slate-800 transition-all flex flex-col items-center gap-2 cursor-pointer group"
+        style={{
+          top: position.y,
+          left: position.x,
+        }}
+        className="fixed z-[100000] bg-slate-900 text-white p-3 rounded-l-xl border-l-2 border-y border-blue-500 shadow-2xl hover:bg-slate-800 transition-all flex flex-col items-center gap-2 cursor-pointer group"
       >
-        <ChevronLeft className="w-5 h-5 text-blue-400 group-hover:-translate-x-0.5 transition-transform" />
-        <span className="text-[10px] tracking-widest font-bold uppercase [writing-mode:vertical-lr] select-none text-slate-300">
+        <ChevronLeft className="w-5 h-5 text-blue-400 group-hover:-translate-x-0.5 transition-transform pointer-events-none" />
+        <span className="text-[10px] tracking-widest font-bold uppercase [writing-mode:vertical-lr] select-none text-slate-300 pointer-events-none">
           Inspector
         </span>
       </button>
@@ -371,7 +413,7 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
 
   // Contrast calculations for inspection card
   const contrastRatio = lockedStyles ? lockedStyles.contrastRatio : 1;
-  const isLargeText = lockedStyles 
+  const isLargeText = lockedStyles
     ? (parseFloat(lockedStyles.fontSize) >= 24 || (parseFloat(lockedStyles.fontSize) >= 18.6 && parseInt(lockedStyles.fontWeight, 10) >= 700))
     : false;
 
@@ -379,11 +421,21 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
   const aaaPassed = isLargeText ? contrastRatio >= 4.5 : contrastRatio >= 7.0;
 
   return (
-    <div className="fixed right-4 top-4 bottom-4 w-96 bg-slate-950/95 backdrop-blur-md text-slate-100 rounded-2xl border border-slate-800 shadow-2xl z-[100000] flex flex-col overflow-hidden font-sans">
-      
+    <div
+      style={{
+        top: position.y,
+        left: position.x,
+        height: 'calc(100vh - 32px)'
+      }}
+      className="fixed w-96 bg-slate-950/95 backdrop-blur-md text-slate-100 rounded-2xl border border-slate-800 shadow-2xl z-[100000] flex flex-col overflow-hidden font-sans"
+    >
+
       {/* Header Panel */}
-      <div className="p-4 border-b border-slate-900 bg-slate-900/30 flex items-center justify-between">
-        <div className="flex items-center gap-2">
+      <div
+        onMouseDown={handleMouseDown}
+        className="p-4 border-b border-slate-900 bg-slate-900/30 flex items-center justify-between cursor-move"
+      >
+        <div className="flex items-center gap-2 pointer-events-none">
           <Sparkles className="w-5 h-5 text-blue-500 animate-pulse" />
           <div>
             <h2 className="text-sm font-bold tracking-wider uppercase text-white">Visual Inspector</h2>
@@ -402,7 +454,7 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
             </button>
           )}
           {/* Minimize Button */}
-          <button 
+          <button
             onClick={() => setIsMinimized(true)}
             title="Minimize Panel"
             className="p-1.5 rounded-lg bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-all cursor-pointer"
@@ -410,7 +462,7 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
             <ChevronRight className="w-4 h-4" />
           </button>
           {/* Close Button */}
-          <button 
+          <button
             onClick={onClose}
             title="Close Extension Overlay"
             className="p-1.5 rounded-lg bg-red-950/50 border border-red-900/30 hover:bg-red-950/80 text-red-400 hover:text-red-300 transition-all cursor-pointer"
@@ -430,11 +482,10 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
         </div>
         <button
           onClick={() => setInspectorActive(!inspectorActive)}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-md ${
-            inspectorActive 
-              ? "bg-blue-600 hover:bg-blue-700 text-white ring-2 ring-blue-400/20" 
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-md ${inspectorActive
+              ? "bg-blue-600 hover:bg-blue-700 text-white ring-2 ring-blue-400/20"
               : "bg-slate-800 hover:bg-slate-700 text-slate-300"
-          }`}
+            }`}
         >
           <MousePointer className={`w-3.5 h-3.5 ${inspectorActive ? "animate-bounce" : ""}`} />
           {inspectorActive ? "Active" : "Disabled"}
@@ -443,38 +494,34 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
 
       {/* Tab Navigation */}
       <div className="flex border-b border-slate-900 bg-slate-950">
-        <button 
+        <button
           onClick={() => setActiveTab("inspect")}
-          className={`flex-1 py-3 text-xs font-bold transition-all border-b-2 flex flex-col items-center gap-1 cursor-pointer ${
-            activeTab === "inspect" ? "border-blue-500 text-blue-400 bg-slate-900/10" : "border-transparent text-slate-400 hover:text-slate-200"
-          }`}
+          className={`flex-1 py-3 text-xs font-bold transition-all border-b-2 flex flex-col items-center gap-1 cursor-pointer ${activeTab === "inspect" ? "border-blue-500 text-blue-400 bg-slate-900/10" : "border-transparent text-slate-400 hover:text-slate-200"
+            }`}
         >
           <MousePointer className="w-4 h-4" />
           <span>Inspect</span>
         </button>
-        <button 
+        <button
           onClick={() => { setActiveTab("colors"); handleExtractPalette(); }}
-          className={`flex-1 py-3 text-xs font-bold transition-all border-b-2 flex flex-col items-center gap-1 cursor-pointer ${
-            activeTab === "colors" ? "border-blue-500 text-blue-400 bg-slate-900/10" : "border-transparent text-slate-400 hover:text-slate-200"
-          }`}
+          className={`flex-1 py-3 text-xs font-bold transition-all border-b-2 flex flex-col items-center gap-1 cursor-pointer ${activeTab === "colors" ? "border-blue-500 text-blue-400 bg-slate-900/10" : "border-transparent text-slate-400 hover:text-slate-200"
+            }`}
         >
           <Palette className="w-4 h-4" />
           <span>Colors</span>
         </button>
-        <button 
+        <button
           onClick={() => { setActiveTab("fonts"); handleScanFonts(); }}
-          className={`flex-1 py-3 text-xs font-bold transition-all border-b-2 flex flex-col items-center gap-1 cursor-pointer ${
-            activeTab === "fonts" ? "border-blue-500 text-blue-400 bg-slate-900/10" : "border-transparent text-slate-400 hover:text-slate-200"
-          }`}
+          className={`flex-1 py-3 text-xs font-bold transition-all border-b-2 flex flex-col items-center gap-1 cursor-pointer ${activeTab === "fonts" ? "border-blue-500 text-blue-400 bg-slate-900/10" : "border-transparent text-slate-400 hover:text-slate-200"
+            }`}
         >
           <Type className="w-4 h-4" />
           <span>Fonts</span>
         </button>
-        <button 
+        <button
           onClick={() => { setActiveTab("images"); handleScanImages(); }}
-          className={`flex-1 py-3 text-xs font-bold transition-all border-b-2 flex flex-col items-center gap-1 cursor-pointer ${
-            activeTab === "images" ? "border-blue-500 text-blue-400 bg-slate-900/10" : "border-transparent text-slate-400 hover:text-slate-200"
-          }`}
+          className={`flex-1 py-3 text-xs font-bold transition-all border-b-2 flex flex-col items-center gap-1 cursor-pointer ${activeTab === "images" ? "border-blue-500 text-blue-400 bg-slate-900/10" : "border-transparent text-slate-400 hover:text-slate-200"
+            }`}
         >
           <Image className="w-4 h-4" />
           <span>Images</span>
@@ -483,7 +530,7 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
 
       {/* Tab Panels */}
       <div className="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-4">
-        
+
         {/* INSPECT ELEMENT PANEL */}
         {activeTab === "inspect" && (
           lockedStyles ? (
@@ -506,13 +553,12 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
                       return (
                         <div
                           key={`tag-${idx}-${tagName}`}
-                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono transition-all border shrink-0 ${
-                            isActive
+                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono transition-all border shrink-0 ${isActive
                               ? "bg-blue-600/20 border-blue-500 text-blue-400 font-bold"
                               : "bg-slate-900/40 border-slate-800 text-slate-400 hover:text-slate-200"
-                          }`}
+                            }`}
                         >
-                          <span 
+                          <span
                             onClick={() => setActiveItemIndex(idx)}
                             className="cursor-pointer select-none"
                           >
@@ -586,10 +632,10 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
                 <h3 className="text-xs font-bold tracking-wider uppercase text-slate-400 border-b border-slate-800 pb-1">
                   Colors & Contrast Ratio
                 </h3>
-                
+
                 {/* Foreground & Background colors */}
                 <div className="grid grid-cols-2 gap-2">
-                  <div 
+                  <div
                     onClick={() => {
                       const hex = rgbToHex(lockedStyles.textColorRGB);
                       setSelectedColor(hex);
@@ -597,8 +643,8 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
                     }}
                     className="bg-slate-950 p-2 rounded-lg border border-slate-850 flex items-center gap-2 cursor-pointer hover:border-slate-700 transition-all"
                   >
-                    <div 
-                      className="w-6 h-6 rounded-md border border-slate-750 shrink-0" 
+                    <div
+                      className="w-6 h-6 rounded-md border border-slate-750 shrink-0"
                       style={{ backgroundColor: lockedStyles.color }}
                     />
                     <div className="overflow-hidden">
@@ -607,7 +653,7 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
                     </div>
                   </div>
 
-                  <div 
+                  <div
                     onClick={() => {
                       const hex = rgbToHex(lockedStyles.bgColorRGB);
                       setSelectedColor(hex);
@@ -615,8 +661,8 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
                     }}
                     className="bg-slate-950 p-2 rounded-lg border border-slate-850 flex items-center gap-2 cursor-pointer hover:border-slate-700 transition-all"
                   >
-                    <div 
-                      className="w-6 h-6 rounded-md border border-slate-750 shrink-0" 
+                    <div
+                      className="w-6 h-6 rounded-md border border-slate-750 shrink-0"
                       style={{ backgroundColor: rgbToHex(lockedStyles.bgColorRGB) }}
                     />
                     <div className="overflow-hidden">
@@ -634,21 +680,19 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
                       {contrastRatio.toFixed(2)}:1
                     </div>
                   </div>
-                  
+
                   <div className="flex gap-2">
                     <div className="flex flex-col items-center">
                       <span className="text-[8px] font-bold text-slate-500">AA</span>
-                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-black ${
-                        aaPassed ? "bg-emerald-950 text-emerald-400 border border-emerald-900/30" : "bg-red-950 text-red-400 border border-red-900/30"
-                      }`}>
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-black ${aaPassed ? "bg-emerald-950 text-emerald-400 border border-emerald-900/30" : "bg-red-950 text-red-400 border border-red-900/30"
+                        }`}>
                         {aaPassed ? "PASS" : "FAIL"}
                       </span>
                     </div>
                     <div className="flex flex-col items-center">
                       <span className="text-[8px] font-bold text-slate-500">AAA</span>
-                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-black ${
-                        aaaPassed ? "bg-emerald-950 text-emerald-400 border border-emerald-900/30" : "bg-red-950 text-red-400 border border-red-900/30"
-                      }`}>
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-black ${aaaPassed ? "bg-emerald-950 text-emerald-400 border border-emerald-900/30" : "bg-red-950 text-red-400 border border-red-900/30"
+                        }`}>
                         {aaaPassed ? "PASS" : "FAIL"}
                       </span>
                     </div>
@@ -690,7 +734,7 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
               <h3 className="text-xs font-bold tracking-wider uppercase text-slate-400">
                 Page Color Extractor
               </h3>
-              <button 
+              <button
                 onClick={handleExtractPalette}
                 className="text-[10px] px-2 py-1 bg-slate-900 hover:bg-slate-850 text-blue-400 border border-slate-800 rounded font-semibold cursor-pointer transition-all"
               >
@@ -704,15 +748,14 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
               {dominantPalette.length > 0 ? (
                 <div className="grid grid-cols-4 gap-2">
                   {dominantPalette.map((color, i) => (
-                    <div 
+                    <div
                       key={i}
                       onClick={() => setSelectedColor(color)}
-                      className={`group relative rounded-xl border p-1 bg-slate-900 cursor-pointer transition-all flex flex-col items-center ${
-                        selectedColor === color ? "border-blue-500 ring-2 ring-blue-500/20" : "border-slate-800 hover:border-slate-700"
-                      }`}
+                      className={`group relative rounded-xl border p-1 bg-slate-900 cursor-pointer transition-all flex flex-col items-center ${selectedColor === color ? "border-blue-500 ring-2 ring-blue-500/20" : "border-slate-800 hover:border-slate-700"
+                        }`}
                     >
-                      <div 
-                        className="w-full aspect-square rounded-lg border border-slate-950" 
+                      <div
+                        className="w-full aspect-square rounded-lg border border-slate-950"
                         style={{ backgroundColor: color }}
                       />
                       <span className="text-[8px] font-mono mt-1 text-slate-400 truncate w-full text-center">
@@ -750,8 +793,8 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
                       <div className="text-[9px] text-slate-400 font-semibold">{scheme.type}</div>
                       <div className="flex rounded-lg overflow-hidden h-7 border border-slate-950">
                         {scheme.colors.map((c, cIdx) => (
-                          <div 
-                            key={cIdx} 
+                          <div
+                            key={cIdx}
                             style={{ backgroundColor: c }}
                             onClick={() => setSelectedColor(c)}
                             title={`Click to inspect: ${c}`}
@@ -779,17 +822,16 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
                 Site Fonts & Sizes
               </h3>
               <div className="flex items-center gap-1.5">
-                <button 
+                <button
                   onClick={() => setShowContrastTooltips(!showContrastTooltips)}
-                  className={`text-[10px] px-2 py-1 border rounded font-semibold cursor-pointer transition-all ${
-                    showContrastTooltips 
-                      ? "bg-emerald-950/40 border-emerald-600/80 text-emerald-400 font-bold" 
+                  className={`text-[10px] px-2 py-1 border rounded font-semibold cursor-pointer transition-all ${showContrastTooltips
+                      ? "bg-emerald-950/40 border-emerald-600/80 text-emerald-400 font-bold"
                       : "bg-slate-900 hover:bg-slate-850 text-slate-300 border-slate-800"
-                  }`}
+                    }`}
                 >
                   {showContrastTooltips ? "Hide Contrast" : "Show Contrast"}
                 </button>
-                <button 
+                <button
                   onClick={handleScanFonts}
                   className="text-[10px] px-2 py-1 bg-slate-900 hover:bg-slate-850 text-blue-400 border border-slate-800 rounded font-semibold cursor-pointer transition-all"
                 >
@@ -803,7 +845,7 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
               <div className="text-[10px] text-slate-500 font-bold uppercase flex justify-between items-center">
                 <span>Detected Font Families</span>
                 {(highlightedFont || highlightedSize) && (
-                  <button 
+                  <button
                     onClick={clearFontHighlights}
                     className="text-[9px] text-red-400 hover:text-red-300 font-bold cursor-pointer transition-all border-none bg-transparent"
                   >
@@ -816,7 +858,7 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
                   {scannedFamilies.map((font, idx) => {
                     const isHighlighted = highlightedFont === font.family;
                     return (
-                      <div 
+                      <div
                         key={`family-${idx}-${font.family}`}
                         onClick={() => {
                           if (isHighlighted) {
@@ -825,11 +867,10 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
                             highlightFontProperty("family", font.family);
                           }
                         }}
-                        className={`px-3 py-2 rounded-lg border flex items-center justify-between cursor-pointer transition-all ${
-                          isHighlighted 
-                            ? "bg-blue-950/35 border-blue-500/80 shadow-md shadow-blue-500/10" 
+                        className={`px-3 py-2 rounded-lg border flex items-center justify-between cursor-pointer transition-all ${isHighlighted
+                            ? "bg-blue-950/35 border-blue-500/80 shadow-md shadow-blue-500/10"
                             : "bg-slate-900/50 border-slate-850 hover:border-slate-800"
-                        }`}
+                          }`}
                       >
                         <div className="font-mono text-xs text-white truncate max-w-[200px]" style={{ fontFamily: font.family }}>
                           {font.family}
@@ -861,7 +902,7 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
                   {scannedSizes.slice(0, 14).map((size, idx) => {
                     const isHighlighted = highlightedSize === size.size;
                     return (
-                      <div 
+                      <div
                         key={`size-${idx}-${size.size}`}
                         onClick={() => {
                           if (isHighlighted) {
@@ -870,11 +911,10 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
                             highlightFontProperty("size", size.size);
                           }
                         }}
-                        className={`px-2 py-1.5 rounded-lg border flex items-center justify-between font-mono text-xs cursor-pointer transition-all ${
-                          isHighlighted 
-                            ? "bg-blue-950/35 border-blue-500/80 shadow-md shadow-blue-500/10" 
+                        className={`px-2 py-1.5 rounded-lg border flex items-center justify-between font-mono text-xs cursor-pointer transition-all ${isHighlighted
+                            ? "bg-blue-950/35 border-blue-500/80 shadow-md shadow-blue-500/10"
                             : "bg-slate-900/50 border-slate-850 hover:border-slate-800"
-                        }`}
+                          }`}
                       >
                         <span className="text-white font-bold">{size.size}</span>
                         <div className="flex items-center gap-1">
@@ -903,7 +943,7 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
               <h3 className="text-xs font-bold tracking-wider uppercase text-slate-400">
                 Image Asset Extractor
               </h3>
-              <button 
+              <button
                 onClick={handleScanImages}
                 className="text-[10px] px-2 py-1 bg-slate-900 hover:bg-slate-850 text-blue-400 border border-slate-800 rounded font-semibold cursor-pointer transition-all"
               >
@@ -915,24 +955,24 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
             {scannedImages.length > 0 ? (
               <div className="grid grid-cols-2 gap-3 max-h-[400px] overflow-y-auto custom-scrollbar pr-1">
                 {scannedImages.map((img, idx) => (
-                  <div 
+                  <div
                     key={idx}
                     className="bg-slate-900/50 rounded-xl border border-slate-850 overflow-hidden flex flex-col hover:border-slate-800 transition-all group relative"
                   >
                     {/* Thumbnail Frame */}
                     <div className="aspect-video bg-slate-950 flex items-center justify-center overflow-hidden border-b border-slate-900 relative">
-                      <img 
-                        src={img.src} 
-                        alt={img.alt} 
+                      <img
+                        src={img.src}
+                        alt={img.alt}
                         className="max-w-full max-h-full object-contain group-hover:scale-105 transition-transform duration-300"
                         onError={(e) => {
                           (e.target as HTMLElement).style.display = "none";
                         }}
                       />
                       {/* Hover Overlay Button to Open Image */}
-                      <a 
-                        href={img.src} 
-                        target="_blank" 
+                      <a
+                        href={img.src}
+                        target="_blank"
                         rel="noreferrer"
                         title="Open image in new tab"
                         className="absolute inset-0 bg-slate-950/70 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity duration-200 cursor-pointer"
@@ -963,9 +1003,9 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
             )}
           </div>
         )}
-        
+
       </div>
-      
+
       {/* Footer Info */}
       <div className="p-3 border-t border-slate-900 bg-slate-950 flex items-center justify-between text-[8px] text-slate-500 tracking-wider uppercase font-mono">
         <span>Active Tab: {activeTab}</span>
