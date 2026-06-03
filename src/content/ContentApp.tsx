@@ -4,7 +4,7 @@ import { FloatingPanel } from "./FloatingPanel";
 import { ElementStyles, extractElementStyles } from "./styleExtractor";
 
 export const ContentApp: React.FC = () => {
-  const [isOpen, setIsOpen] = useState(true); // Overlay starts open
+  const [isOpen, setIsOpen] = useState(false); // Overlay starts closed
   const [inspectorActive, setInspectorActive] = useState(false);
   const [hoveredElement, setHoveredElement] = useState<HTMLElement | null>(null);
   const [lockedItems, setLockedItems] = useState<{ element: HTMLElement; styles: ElementStyles }[]>([]);
