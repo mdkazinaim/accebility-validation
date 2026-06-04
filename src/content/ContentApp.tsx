@@ -190,6 +190,16 @@ export const ContentApp: React.FC = () => {
     const wasInspectorActive = inspectorActive;
     if (wasInspectorActive) setInspectorActive(false);
 
+    // Inject styles to temporarily disable hover states on page elements
+    const styleEl = document.createElement("style");
+    styleEl.id = "accessibility-inspector-eyedropper-style";
+    styleEl.textContent = `
+      *:not(#accessibility-inspector-extension-root) {
+        pointer-events: none !important;
+      }
+    `;
+    document.head.appendChild(styleEl);
+
     try {
       const eyeDropper = new (window as any).EyeDropper();
       const result = await eyeDropper.open();
@@ -204,6 +214,10 @@ export const ContentApp: React.FC = () => {
     } catch (e) {
       console.warn("EyeDropper aborted:", e);
     } finally {
+      // Remove injected styles
+      const targetStyle = document.getElementById("accessibility-inspector-eyedropper-style");
+      if (targetStyle) targetStyle.remove();
+
       if (wasInspectorActive) setInspectorActive(true);
     }
   };

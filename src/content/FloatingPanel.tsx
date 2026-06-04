@@ -12,7 +12,7 @@ import {
   Sparkles,
   Pipette
 } from "lucide-react";
-import { ElementStyles } from "./styleExtractor";
+import { ElementStyles, parseColor } from "./styleExtractor";
 import { extractPalette, generateSuggestions, rgbToHex, scanPageColors } from "./kmeans";
 
 interface FloatingPanelProps {
@@ -63,7 +63,28 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
 
   // Color tab state
   const [dominantPalette, setDominantPalette] = useState<string[]>([]);
-  const [selectedColor, setSelectedColor] = useState<string>("#3b82f6");
+  const [selectedColorState, setSelectedColorState] = useState<string>("#3B82F6");
+
+  const normalizeToHex = (colorStr: string): string => {
+    if (!colorStr) return "#3B82F6";
+    const clean = colorStr.trim();
+    if (clean.startsWith("#") && (clean.length === 7 || clean.length === 4)) {
+      return clean.toUpperCase();
+    }
+    const parsed = parseColor(clean);
+    if (parsed && !isNaN(parsed.r)) {
+      const r = Math.round(parsed.r).toString(16).padStart(2, "0");
+      const g = Math.round(parsed.g).toString(16).padStart(2, "0");
+      const b = Math.round(parsed.b).toString(16).padStart(2, "0");
+      return `#${r}${g}${b}`.toUpperCase();
+    }
+    return clean;
+  };
+
+  const setSelectedColor = (color: string) => {
+    setSelectedColorState(normalizeToHex(color));
+  };
+  const selectedColor = selectedColorState;
 
   // Fonts tab state
   const [scannedFamilies, setScannedFamilies] = useState<ScannedFont[]>([]);
@@ -316,6 +337,16 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
     const wasInspectorActive = inspectorActive;
     if (wasInspectorActive) setInspectorActive(false);
 
+    // Inject styles to temporarily disable hover states on page elements
+    const styleEl = document.createElement("style");
+    styleEl.id = "accessibility-inspector-eyedropper-style";
+    styleEl.textContent = `
+      *:not(#accessibility-inspector-extension-root) {
+        pointer-events: none !important;
+      }
+    `;
+    document.head.appendChild(styleEl);
+
     try {
       const eyeDropper = new (window as any).EyeDropper();
       const result = await eyeDropper.open();
@@ -327,6 +358,10 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
     } catch (e) {
       console.warn("EyeDropper aborted:", e);
     } finally {
+      // Remove injected styles
+      const targetStyle = document.getElementById("accessibility-inspector-eyedropper-style");
+      if (targetStyle) targetStyle.remove();
+
       if (wasInspectorActive) setInspectorActive(true);
     }
   };

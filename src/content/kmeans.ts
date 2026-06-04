@@ -1,4 +1,4 @@
-import { RGB } from "./styleExtractor";
+import { RGB, parseColor } from "./styleExtractor";
 
 export interface ColorHarmony {
   type: string;
@@ -128,12 +128,16 @@ export function scanPageColors(): RGB[] {
       const fg = style.color;
       
       if (bg && bg !== "rgba(0, 0, 0, 0)" && bg !== "transparent") {
-        const parsedBg = hexToRgb(rgbToHex(hexToRgb(bg))); // sanitize
-        if (parsedBg) colors.push(parsedBg);
+        const parsedBg = parseColor(bg);
+        if (parsedBg && parsedBg.a !== 0 && !isNaN(parsedBg.r)) {
+          colors.push(parsedBg);
+        }
       }
       if (fg && fg !== "rgba(0, 0, 0, 0)" && fg !== "transparent") {
-        const parsedFg = hexToRgb(rgbToHex(hexToRgb(fg)));
-        if (parsedFg) colors.push(parsedFg);
+        const parsedFg = parseColor(fg);
+        if (parsedFg && parsedFg.a !== 0 && !isNaN(parsedFg.r)) {
+          colors.push(parsedFg);
+        }
       }
     } catch {
       // ignore styles exceptions
