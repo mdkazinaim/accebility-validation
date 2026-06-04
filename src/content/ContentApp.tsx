@@ -2,8 +2,19 @@ import React, { useEffect, useState } from "react";
 import { InspectorOverlay } from "./InspectorOverlay";
 import { FloatingPanel } from "./FloatingPanel";
 import { ElementStyles, extractElementStyles } from "./styleExtractor";
+import {
+  MousePointer,
+  Type,
+  Palette,
+  Image,
+  Search,
+  Layout,
+  Power,
+  Pipette
+} from "lucide-react";
 
 export const ContentApp: React.FC = () => {
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isOpen, setIsOpen] = useState(false); // Overlay starts closed
   const [inspectorActive, setInspectorActive] = useState(false);
   const [hoveredElement, setHoveredElement] = useState<HTMLElement | null>(null);
@@ -28,7 +39,16 @@ export const ContentApp: React.FC = () => {
       const action = message.action;
 
       if (action === "query-status") {
-        sendResponse({ inspectorActive, isOpen });
+        sendResponse({ inspectorActive, isOpen, isMenuOpen });
+      } else if (action === "toggle-extension") {
+        const next = !isMenuOpen;
+        setIsMenuOpen(next);
+        if (!next) {
+          setIsOpen(false);
+          setInspectorActive(false);
+          setShowContrastTooltips(false);
+        }
+        sendResponse({ isMenuOpen: next });
       } else if (action === "toggle-inspector") {
         const nextState = !inspectorActive;
         setInspectorActive(nextState);
@@ -63,7 +83,7 @@ export const ContentApp: React.FC = () => {
     return () => {
       chrome.runtime.onMessage.removeListener(handleMessage);
     };
-  }, [inspectorActive, isOpen]);
+  }, [inspectorActive, isOpen, isMenuOpen]);
 
   // Native EyeDropper triggering inside content script
   const triggerNativeEyeDropper = async () => {
@@ -88,6 +108,39 @@ export const ContentApp: React.FC = () => {
       if (wasInspectorActive) setInspectorActive(true);
     }
   };
+
+  // Listen for keyboard shortcuts when menu is open
+  useEffect(() => {
+    if (!isMenuOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      if (activeEl && (
+        activeEl.tagName === "INPUT" || 
+        activeEl.tagName === "TEXTAREA" || 
+        (activeEl as HTMLElement).isContentEditable
+      )) {
+        return;
+      }
+
+      const key = e.key.toLowerCase();
+      if (key === "m") {
+        e.preventDefault();
+        setInspectorActive(prev => !prev);
+      } else if (key === "e") {
+        e.preventDefault();
+        triggerNativeEyeDropper();
+      } else if (key === "v") {
+        e.preventDefault();
+        setIsOpen(prev => !prev);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isMenuOpen]);
 
   // Document hover handler (works even if sidebar is closed)
   useEffect(() => {
@@ -337,6 +390,153 @@ export const ContentApp: React.FC = () => {
           showContrastTooltips={showContrastTooltips}
           setShowContrastTooltips={setShowContrastTooltips}
         />
+      )}
+
+      {isMenuOpen && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100000] flex flex-col items-center gap-1.5 pointer-events-none select-none">
+          {/* Key shortcut badges */}
+          <div className="flex items-center gap-8 text-[9px] font-bold font-mono tracking-widest text-blue-400 select-none">
+            <span className="flex items-center justify-center w-5 h-5 rounded-full bg-slate-950 border border-blue-500/20 shadow-md">M</span>
+            <span className="flex items-center justify-center w-5 h-5 rounded-full bg-slate-950 border border-blue-500/20 shadow-md">E</span>
+            <span className="flex items-center justify-center w-5 h-5 rounded-full bg-slate-950 border border-blue-500/20 shadow-md">V</span>
+          </div>
+
+          {/* Main Toolbar Pill */}
+          <div className="flex items-center gap-4 bg-slate-950/90 backdrop-blur-md border border-slate-800/80 px-4 py-2.5 rounded-full shadow-2xl pointer-events-auto">
+            {/* Group 1: Tools */}
+            <div className="flex items-center gap-1.5 pr-3 border-r border-slate-800">
+              {/* Mouse Inspector */}
+              <button
+                onClick={() => setInspectorActive(!inspectorActive)}
+                className={`p-2 rounded-full cursor-pointer transition-all ${
+                  inspectorActive
+                    ? "bg-blue-600 text-white shadow-md shadow-blue-600/30 scale-105"
+                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+                }`}
+                title="Hover Inspector (Key: M)"
+              >
+                <MousePointer className="w-4 h-4" />
+              </button>
+
+              {/* Eyedropper Color Picker */}
+              {"EyeDropper" in window && (
+                <button
+                  onClick={triggerNativeEyeDropper}
+                  className="p-2 rounded-full cursor-pointer text-slate-400 hover:text-slate-200 hover:bg-slate-900 transition-all"
+                  title="Color Picker / Eyedropper (Key: E)"
+                >
+                  <Pipette className="w-4 h-4" />
+                </button>
+              )}
+
+              {/* Contrast Badges Toggle */}
+              <button
+                onClick={() => setShowContrastTooltips(!showContrastTooltips)}
+                className={`p-2 rounded-full cursor-pointer transition-all ${
+                  showContrastTooltips
+                    ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/30 scale-105"
+                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+                }`}
+                title="Toggle Page Contrast Badges"
+              >
+                <Type className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Group 2: Sidebar Tabs */}
+            <div className="flex items-center gap-1.5 px-1 pr-3 border-r border-slate-800">
+              <button
+                onClick={() => {
+                  setFocusedTab("inspect");
+                  setIsOpen(true);
+                }}
+                className={`p-2 rounded-full cursor-pointer transition-all ${
+                  isOpen && focusedTab === "inspect"
+                    ? "bg-slate-800 text-blue-400 border border-slate-700"
+                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+                }`}
+                title="Inspect Elements"
+              >
+                <Search className="w-4 h-4" />
+              </button>
+
+              <button
+                onClick={() => {
+                  setFocusedTab("colors");
+                  setIsOpen(true);
+                }}
+                className={`p-2 rounded-full cursor-pointer transition-all ${
+                  isOpen && focusedTab === "colors"
+                    ? "bg-slate-800 text-blue-400 border border-slate-700"
+                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+                }`}
+                title="Color Analyzer"
+              >
+                <Palette className="w-4 h-4" />
+              </button>
+
+              <button
+                onClick={() => {
+                  setFocusedTab("fonts");
+                  setIsOpen(true);
+                }}
+                className={`p-2 rounded-full cursor-pointer transition-all ${
+                  isOpen && focusedTab === "fonts"
+                    ? "bg-slate-800 text-blue-400 border border-slate-700"
+                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+                }`}
+                title="Typography Analyzer"
+              >
+                <Type className="w-4 h-4" />
+              </button>
+
+              <button
+                onClick={() => {
+                  setFocusedTab("images");
+                  setIsOpen(true);
+                }}
+                className={`p-2 rounded-full cursor-pointer transition-all ${
+                  isOpen && focusedTab === "images"
+                    ? "bg-slate-800 text-blue-400 border border-slate-700"
+                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+                }`}
+                title="Image Analyzer"
+              >
+                <Image className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Group 3: Control Buttons */}
+            <div className="flex items-center gap-1.5">
+              {/* Toggle Sidebar */}
+              <button
+                onClick={() => setIsOpen(!isOpen)}
+                className={`p-2 rounded-full cursor-pointer transition-all ${
+                  isOpen
+                    ? "bg-blue-600 text-white shadow-md"
+                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+                }`}
+                title="Toggle Sidebar (Key: V)"
+              >
+                <Layout className="w-4 h-4" />
+              </button>
+
+              {/* Close Menu */}
+              <button
+                onClick={() => {
+                  setIsMenuOpen(false);
+                  setIsOpen(false);
+                  setInspectorActive(false);
+                  setShowContrastTooltips(false);
+                }}
+                className="p-2 rounded-full cursor-pointer text-rose-500 hover:text-rose-400 hover:bg-rose-950/30 transition-all"
+                title="Close Visual Inspector"
+              >
+                <Power className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );

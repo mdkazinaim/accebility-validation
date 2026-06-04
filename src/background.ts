@@ -11,3 +11,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   return true;
 });
+
+// Handle extension toolbar icon click to toggle the bottom menu on page
+chrome.action.onClicked.addListener((tab) => {
+  if (tab.id) {
+    chrome.tabs.sendMessage(tab.id, { action: "toggle-extension" }).catch((err) => {
+      console.warn("Could not send toggle-extension message to tab:", err);
+    });
+  }
+});
