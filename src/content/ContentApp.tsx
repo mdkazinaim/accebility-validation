@@ -37,14 +37,12 @@ export const ContentApp: React.FC = () => {
   const [lockedItems, setLockedItems] = useState<{ element: HTMLElement; styles: ElementStyles }[]>([]);
   const [focusedTab, setFocusedTab] = useState<"inspect" | "colors" | "fonts" | "images">("inspect");
   const [showContrastTooltips, setShowContrastTooltips] = useState(false);
-  const [fullPageOverlayMode, setFullPageOverlayMode] = useState<"fontSize" | "fontWeight" | "fontFamily" | "contrast" | null>(null);
+  const [activeOverlayModes, setActiveOverlayModes] = useState<Set<"fontSize" | "fontWeight" | "fontFamily" | "contrast">>(new Set());
   const [fullPageTooltips, setFullPageTooltips] = useState<{
     id: string;
     top: number;
     left: number;
-    value: string;
-    bgColor: string;
-    textColor: string;
+    segments: { value: string; bgColor: string }[];
   }[]>([]);
 
   // Text Inspector States
@@ -107,7 +105,7 @@ export const ContentApp: React.FC = () => {
           setInspectorActive(false);
           setTextInspectorActive(false);
           setShowContrastTooltips(false);
-          setFullPageOverlayMode(null);
+          setActiveOverlayModes(new Set());
         }
         sendResponse({ isMenuOpen: next });
       } else if (action === "toggle-inspector") {
@@ -222,7 +220,7 @@ export const ContentApp: React.FC = () => {
         setInspectorActive(false);
         setTextInspectorActive(false);
         setShowContrastTooltips(false);
-        setFullPageOverlayMode(null);
+        setActiveOverlayModes(new Set());
       }
     };
 
@@ -392,76 +390,64 @@ export const ContentApp: React.FC = () => {
     setLockedItems(prev => prev.filter(item => item.element !== element));
   };
 
+  const MODE_CONFIG: Record<string, { bgColor: (styles: ReturnType<typeof extractElementStyles>) => string; getValue: (styles: ReturnType<typeof extractElementStyles>) => string }> = {
+    fontSize:   { bgColor: () => "#1e3a8a", getValue: s => s.fontSize },
+    fontWeight: { bgColor: () => "#3730a3", getValue: s => s.fontWeight },
+    fontFamily: { bgColor: () => "#4c1d95", getValue: s => { const v = s.fontFamilyChain[0] || s.fontFamily; return v.length > 15 ? v.substring(0, 12) + "..." : v; } },
+    contrast:   { bgColor: s => {
+      const isLargeText = parseFloat(s.fontSize) >= 24 || (parseFloat(s.fontSize) >= 18.6 && parseInt(s.fontWeight, 10) >= 700);
+      return (isLargeText ? s.contrastRatio >= 3.0 : s.contrastRatio >= 4.5) ? "#064e3b" : "#7f1d1d";
+    }, getValue: s => `${s.contrastRatio.toFixed(1)}:1` },
+  };
+
   const scanFullPageTooltips = () => {
-    if (!fullPageOverlayMode) {
+    if (activeOverlayModes.size === 0) {
       setFullPageTooltips([]);
       return;
     }
 
     const allElements = Array.from(document.querySelectorAll("*")) as HTMLElement[];
     const shadowHost = document.getElementById("accessibility-inspector-extension-root");
+    const activeModes = Array.from(activeOverlayModes);
 
-    const tooltips: {
-      id: string;
-      top: number;
-      left: number;
-      value: string;
-      bgColor: string;
-      textColor: string;
-    }[] = [];
-
-    const scrollTop = window.scrollY;
-    const scrollLeft = window.scrollX;
+    const tooltips: { id: string; top: number; left: number; segments: { value: string; bgColor: string }[] }[] = [];
 
     allElements.forEach((el, idx) => {
       if (shadowHost && shadowHost.contains(el)) return;
       if (el.offsetWidth === 0 && el.offsetHeight === 0) return;
 
-      // Filter: only select elements that contain direct text content
-      let hasDirectText = false;
+      // Find the first non-empty direct text node
+      let firstTextNode: Text | null = null;
       for (let i = 0; i < el.childNodes.length; i++) {
         const node = el.childNodes[i];
         if (node.nodeType === 3 && node.textContent && node.textContent.trim().length > 0) {
-          hasDirectText = true;
+          firstTextNode = node as Text;
           break;
         }
       }
 
-      if (hasDirectText) {
+      if (firstTextNode) {
         try {
-          const rect = el.getBoundingClientRect();
-          if (rect.width < 2 || rect.height < 2) return;
+          // Use Range to get the actual text bounding box (not the element box)
+          const range = document.createRange();
+          range.selectNode(firstTextNode);
+          const textRect = range.getBoundingClientRect();
+          if (textRect.width < 2 || textRect.height < 2) return;
 
           const styles = extractElementStyles(el);
-          let value = "";
-          let bgColor = "#0f172a"; // default slate-900
-          let textColor = "#f8fafc"; // default slate-50
 
-          if (fullPageOverlayMode === "fontSize") {
-            value = styles.fontSize;
-            bgColor = "#1e3a8a"; // Blue-900
-          } else if (fullPageOverlayMode === "fontWeight") {
-            value = styles.fontWeight;
-            bgColor = "#3730a3"; // Indigo-800
-          } else if (fullPageOverlayMode === "fontFamily") {
-            value = styles.fontFamilyChain[0] || styles.fontFamily;
-            if (value.length > 15) value = value.substring(0, 12) + "...";
-            bgColor = "#4c1d95"; // Purple-900
-          } else if (fullPageOverlayMode === "contrast") {
-            value = `${styles.contrastRatio.toFixed(1)}:1`;
-            const isLargeText = parseFloat(styles.fontSize) >= 24 || 
-              (parseFloat(styles.fontSize) >= 18.6 && parseInt(styles.fontWeight, 10) >= 700);
-            const isPassed = isLargeText ? styles.contrastRatio >= 3.0 : styles.contrastRatio >= 4.5;
-            bgColor = isPassed ? "#064e3b" : "#7f1d1d"; // Green-900 or Red-900
-          }
+          // One container per element – all active modes shown side by side
+          const segments = activeModes.map(mode => ({
+            value: MODE_CONFIG[mode].getValue(styles),
+            bgColor: MODE_CONFIG[mode].bgColor(styles),
+          }));
 
           tooltips.push({
             id: `fp-tooltip-${idx}`,
-            top: rect.top + scrollTop,
-            left: rect.left + scrollLeft,
-            value,
-            bgColor,
-            textColor
+            // Center over the actual text, not the full element width
+            top: textRect.top - 24,
+            left: textRect.left + textRect.width / 2,
+            segments,
           });
         } catch {
           // ignore
@@ -473,7 +459,7 @@ export const ContentApp: React.FC = () => {
   };
 
   useEffect(() => {
-    if (!fullPageOverlayMode) {
+    if (activeOverlayModes.size === 0) {
       setFullPageTooltips([]);
       return;
     }
@@ -502,40 +488,32 @@ export const ContentApp: React.FC = () => {
       observer.disconnect();
       cancelAnimationFrame(scrollTimeout);
     };
-  }, [fullPageOverlayMode]);
+  }, [activeOverlayModes]);
 
-  // Synchronize showContrastTooltips with fullPageOverlayMode
+  // Synchronize showContrastTooltips with activeOverlayModes
   useEffect(() => {
     if (showContrastTooltips) {
-      if (fullPageOverlayMode !== "contrast") {
-        setFullPageOverlayMode("contrast");
-      }
+      setActiveOverlayModes(prev => { const next = new Set(prev); next.add("contrast"); return next; });
     } else {
-      if (fullPageOverlayMode === "contrast") {
-        setFullPageOverlayMode(null);
-      }
+      setActiveOverlayModes(prev => { const next = new Set(prev); next.delete("contrast"); return next; });
     }
   }, [showContrastTooltips]);
 
   useEffect(() => {
-    if (fullPageOverlayMode === "contrast") {
-      setShowContrastTooltips(true);
-    } else {
-      setShowContrastTooltips(false);
-    }
-  }, [fullPageOverlayMode]);
+    setShowContrastTooltips(activeOverlayModes.has("contrast"));
+  }, [activeOverlayModes]);
 
   // Turn off contrast tooltips if the user navigates away from the fonts/colors tab
   useEffect(() => {
-    if (focusedTab !== "fonts" && focusedTab !== "colors" && fullPageOverlayMode === "contrast") {
-      setFullPageOverlayMode(null);
+    if (focusedTab !== "fonts" && focusedTab !== "colors") {
+      setActiveOverlayModes(prev => { const next = new Set(prev); next.delete("contrast"); return next; });
     }
   }, [focusedTab]);
 
   // Turn off overlay modes if the text inspector becomes inactive
   useEffect(() => {
     if (!textInspectorActive) {
-      setFullPageOverlayMode(null);
+      setActiveOverlayModes(new Set());
     }
   }, [textInspectorActive]);
 
@@ -590,44 +568,54 @@ export const ContentApp: React.FC = () => {
         />
       ))}
 
-      {/* Full Page Visual Overlay Tooltips */}
-      {fullPageOverlayMode && fullPageTooltips.map((badge) => (
+      {/* Full Page Visual Overlay Tooltips – one container per element, chips side-by-side */}
+      {activeOverlayModes.size > 0 && fullPageTooltips.map((tip) => (
         <div
-          key={badge.id}
+          key={tip.id}
           style={{
-            position: "absolute",
-            top: Math.max(0, badge.top - 20),
-            left: badge.left,
-            backgroundColor: badge.bgColor,
-            color: badge.textColor,
-            fontSize: "9px",
-            fontWeight: "bold",
-            fontFamily: "monospace",
-            padding: "2px 5.5px",
-            borderRadius: "4px",
-            border: "1px solid rgba(255, 255, 255, 0.25)",
-            boxShadow: "0 2px 5px rgba(0,0,0,0.35)",
+            position: "fixed",
+            top: Math.max(0, tip.top),
+            left: tip.left,
+            transform: "translateX(-50%)",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "2px",
             pointerEvents: "none",
             zIndex: 999998,
-            whiteSpace: "nowrap"
           }}
         >
-          {badge.value}
-          {/* Caret pointing downwards */}
-          <div
-            style={{
-              position: "absolute",
-              bottom: "-4px",
-              left: "50%",
-              transform: "translateX(-50%)",
+          {/* Wrapper that holds chips + caret as a single column */}
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+            {/* Row of coloured chips */}
+            <div style={{ display: "inline-flex", gap: "2px", borderRadius: "4px", overflow: "hidden", boxShadow: "0 2px 6px rgba(0,0,0,0.45)" }}>
+              {tip.segments.map((seg, i) => (
+                <span
+                  key={i}
+                  style={{
+                    backgroundColor: seg.bgColor,
+                    color: "#f8fafc",
+                    fontSize: "9px",
+                    fontWeight: "700",
+                    fontFamily: "monospace",
+                    padding: "2px 5px",
+                    lineHeight: 1.4,
+                    whiteSpace: "nowrap",
+                    borderRight: i < tip.segments.length - 1 ? "1px solid rgba(255,255,255,0.15)" : "none",
+                  }}
+                >
+                  {seg.value}
+                </span>
+              ))}
+            </div>
+            {/* Single indicator triangle centered under the chip row */}
+            <div style={{
               width: 0,
               height: 0,
-              borderLeft: "4px solid transparent",
-              borderRight: "4px solid transparent",
-              borderTop: `4px solid ${badge.bgColor}`,
-              pointerEvents: "none"
-            }}
-          />
+              borderLeft: "5px solid transparent",
+              borderRight: "5px solid transparent",
+              borderTop: `5px solid ${tip.segments[0]?.bgColor ?? "#1e3a8a"}`,
+            }} />
+          </div>
         </div>
       ))}
 
@@ -823,14 +811,25 @@ export const ContentApp: React.FC = () => {
                                 : mode === "fontWeight" ? "Font Weight"
                                 : mode === "fontFamily" ? "Font Family"
                                 : "Contrast";
-                    const isActive = fullPageOverlayMode === mode;
+                    const isActive = activeOverlayModes.has(mode);
+                    const activeColor = mode === "fontSize" ? "bg-blue-600 border-blue-500"
+                                     : mode === "fontWeight" ? "bg-indigo-600 border-indigo-500"
+                                     : mode === "fontFamily" ? "bg-purple-600 border-purple-500"
+                                     : "bg-emerald-700 border-emerald-600";
                     return (
                       <button
                         key={mode}
-                        onClick={() => setFullPageOverlayMode(isActive ? null : mode)}
+                        onClick={() => {
+                          setActiveOverlayModes(prev => {
+                            const next = new Set(prev);
+                            if (next.has(mode)) next.delete(mode);
+                            else next.add(mode);
+                            return next;
+                          });
+                        }}
                         className={`px-2 py-1 rounded-md border cursor-pointer transition-all ${
                           isActive
-                            ? "bg-blue-600 border-blue-500 text-white shadow-sm font-semibold"
+                            ? `${activeColor} text-white shadow-sm font-semibold`
                             : "bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700"
                         }`}
                       >

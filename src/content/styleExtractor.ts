@@ -27,17 +27,34 @@ export interface ElementStyles {
   padding: string;
 }
 
+// Module-level singleton canvas – created once and reused for every colour parse
+// to avoid the heavy cost of DOM element allocation on each call.
+let _canvas: HTMLCanvasElement | null = null;
+let _ctx: CanvasRenderingContext2D | null = null;
+
+function getCtx(): CanvasRenderingContext2D | null {
+  if (_ctx) return _ctx;
+  try {
+    _canvas = document.createElement("canvas");
+    _canvas.width = 1;
+    _canvas.height = 1;
+    _ctx = _canvas.getContext("2d");
+  } catch {
+    _ctx = null;
+  }
+  return _ctx;
+}
+
 // Convert rgb/rgba or hex string to RGB
 export function parseColor(colorStr: string): RGB {
   const str = colorStr.trim().toLowerCase();
   
-  // Try using offscreen canvas to let the browser parse any modern color format (oklch, oklab, hsl, hwb, etc.)
+  // Try using singleton canvas to let the browser parse any modern color format
+  // (oklch, oklab, hsl, hwb, named colours, etc.)
   try {
-    const canvas = document.createElement("canvas");
-    canvas.width = 1;
-    canvas.height = 1;
-    const ctx = canvas.getContext("2d");
+    const ctx = getCtx();
     if (ctx) {
+      ctx.clearRect(0, 0, 1, 1);
       ctx.fillStyle = colorStr;
       ctx.fillRect(0, 0, 1, 1);
       const data = ctx.getImageData(0, 0, 1, 1).data;
@@ -50,8 +67,8 @@ export function parseColor(colorStr: string): RGB {
         };
       }
     }
-  } catch (err) {
-    // fallback
+  } catch {
+    // fallback below
   }
   
   if (str.startsWith("rgb")) {
