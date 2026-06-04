@@ -23,10 +23,49 @@ const isTextElement = (el: HTMLElement): boolean => {
   for (let i = 0; i < el.childNodes.length; i++) {
     const node = el.childNodes[i];
     if (node.nodeType === 3 && node.textContent && node.textContent.trim().length > 0) {
-      return true;
+      if (/[a-zA-Z0-9]/.test(node.textContent)) {
+        return true;
+      }
     }
   }
   return false;
+};
+
+const isElementVisible = (el: HTMLElement, rect: DOMRect): boolean => {
+  // 1. Viewport bounds check
+  if (
+    rect.bottom < 0 ||
+    rect.right < 0 ||
+    rect.top > window.innerHeight ||
+    rect.left > window.innerWidth
+  ) {
+    return false;
+  }
+
+  // 2. CSS visibility/opacity check
+  const style = window.getComputedStyle(el);
+  if (style.opacity === "0" || style.visibility === "hidden" || style.display === "none") {
+    return false;
+  }
+
+  // 3. Overflow occlusion check (climbing the DOM tree)
+  let parent = el.parentElement;
+  while (parent) {
+    const parentStyle = window.getComputedStyle(parent);
+    if (parentStyle.overflow !== "visible" && parentStyle.overflow !== "") {
+      const parentRect = parent.getBoundingClientRect();
+      if (
+        rect.bottom <= parentRect.top ||
+        rect.top >= parentRect.bottom ||
+        rect.right <= parentRect.left ||
+        rect.left >= parentRect.right
+      ) {
+        return false;
+      }
+    }
+    parent = parent.parentElement;
+  }
+  return true;
 };
 
 export const ContentApp: React.FC = () => {
@@ -44,6 +83,7 @@ export const ContentApp: React.FC = () => {
     left: number;
     segments: { value: string; bgColor: string }[];
   }[]>([]);
+  const [hoveredTooltipId, setHoveredTooltipId] = useState<string | null>(null);
 
   // Text Inspector States
   const [textInspectorActive, setTextInspectorActive] = useState(false);
@@ -416,13 +456,15 @@ export const ContentApp: React.FC = () => {
       if (shadowHost && shadowHost.contains(el)) return;
       if (el.offsetWidth === 0 && el.offsetHeight === 0) return;
 
-      // Find the first non-empty direct text node
+      // Find the first non-empty direct text node that contains letters or numbers
       let firstTextNode: Text | null = null;
       for (let i = 0; i < el.childNodes.length; i++) {
         const node = el.childNodes[i];
         if (node.nodeType === 3 && node.textContent && node.textContent.trim().length > 0) {
-          firstTextNode = node as Text;
-          break;
+          if (/[a-zA-Z0-9]/.test(node.textContent)) {
+            firstTextNode = node as Text;
+            break;
+          }
         }
       }
 
@@ -433,6 +475,9 @@ export const ContentApp: React.FC = () => {
           range.selectNode(firstTextNode);
           const textRect = range.getBoundingClientRect();
           if (textRect.width < 2 || textRect.height < 2) return;
+
+          // Check if element is currently visible to the user
+          if (!isElementVisible(el, textRect)) return;
 
           const styles = extractElementStyles(el);
 
@@ -489,6 +534,52 @@ export const ContentApp: React.FC = () => {
       cancelAnimationFrame(scrollTimeout);
     };
   }, [activeOverlayModes]);
+
+  // Track mouse coordinates to detect which tooltip is hovered, since tooltips have pointer-events: none
+  useEffect(() => {
+    if (activeOverlayModes.size === 0 || fullPageTooltips.length === 0) {
+      setHoveredTooltipId(null);
+      return;
+    }
+
+    let frameId: number;
+    const handleMouseMove = (e: MouseEvent) => {
+      cancelAnimationFrame(frameId);
+      frameId = requestAnimationFrame(() => {
+        const x = e.clientX;
+        const y = e.clientY;
+        let foundId: string | null = null;
+
+        const shadowHost = document.getElementById("accessibility-inspector-extension-root");
+        const shadowRoot = shadowHost?.shadowRoot;
+
+        for (let i = 0; i < fullPageTooltips.length; i++) {
+          const tip = fullPageTooltips[i];
+          const el = shadowRoot ? shadowRoot.getElementById(tip.id) : null;
+          if (el) {
+            const rect = el.getBoundingClientRect();
+            // Check if cursor is within the tooltip bounds (with a tiny 2px padding for better user feel)
+            if (
+              x >= rect.left - 2 &&
+              x <= rect.right + 2 &&
+              y >= rect.top - 2 &&
+              y <= rect.bottom + 2
+            ) {
+              foundId = tip.id;
+              break;
+            }
+          }
+        }
+        setHoveredTooltipId(foundId);
+      });
+    };
+
+    window.addEventListener("mousemove", handleMouseMove, { passive: true });
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      cancelAnimationFrame(frameId);
+    };
+  }, [fullPageTooltips, activeOverlayModes]);
 
   // Synchronize showContrastTooltips with activeOverlayModes
   useEffect(() => {
@@ -569,55 +660,61 @@ export const ContentApp: React.FC = () => {
       ))}
 
       {/* Full Page Visual Overlay Tooltips – one container per element, chips side-by-side */}
-      {activeOverlayModes.size > 0 && fullPageTooltips.map((tip) => (
-        <div
-          key={tip.id}
-          style={{
-            position: "fixed",
-            top: Math.max(0, tip.top),
-            left: tip.left,
-            transform: "translateX(-50%)",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "2px",
-            pointerEvents: "none",
-            zIndex: 999998,
-          }}
-        >
-          {/* Wrapper that holds chips + caret as a single column */}
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-            {/* Row of coloured chips */}
-            <div style={{ display: "inline-flex", gap: "2px", borderRadius: "4px", overflow: "hidden", boxShadow: "0 2px 6px rgba(0,0,0,0.45)" }}>
-              {tip.segments.map((seg, i) => (
-                <span
-                  key={i}
-                  style={{
-                    backgroundColor: seg.bgColor,
-                    color: "#f8fafc",
-                    fontSize: "9px",
-                    fontWeight: "700",
-                    fontFamily: "monospace",
-                    padding: "2px 5px",
-                    lineHeight: 1.4,
-                    whiteSpace: "nowrap",
-                    borderRight: i < tip.segments.length - 1 ? "1px solid rgba(255,255,255,0.15)" : "none",
-                  }}
-                >
-                  {seg.value}
-                </span>
-              ))}
+      {activeOverlayModes.size > 0 && fullPageTooltips.map((tip) => {
+        const isHovered = hoveredTooltipId === tip.id;
+        return (
+          <div
+            key={tip.id}
+            id={tip.id}
+            style={{
+              position: "fixed",
+              top: Math.max(0, tip.top),
+              left: tip.left,
+              transform: "translateX(-50%)",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "2px",
+              pointerEvents: "none",
+              zIndex: isHovered ? 999999 : 999998,
+              opacity: isHovered ? 1 : 0.35,
+              transition: "opacity 0.15s ease-in-out, z-index 0.15s ease-in-out",
+            }}
+          >
+            {/* Wrapper that holds chips + caret as a single column */}
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+              {/* Row of coloured chips */}
+              <div style={{ display: "inline-flex", gap: "2px", borderRadius: "4px", overflow: "hidden", boxShadow: "0 2px 6px rgba(0,0,0,0.45)" }}>
+                {tip.segments.map((seg, i) => (
+                  <span
+                    key={i}
+                    style={{
+                      backgroundColor: seg.bgColor,
+                      color: "#f8fafc",
+                      fontSize: "9px",
+                      fontWeight: "700",
+                      fontFamily: "monospace",
+                      padding: "2px 5px",
+                      lineHeight: 1.4,
+                      whiteSpace: "nowrap",
+                      borderRight: i < tip.segments.length - 1 ? "1px solid rgba(255,255,255,0.15)" : "none",
+                    }}
+                  >
+                    {seg.value}
+                  </span>
+                ))}
+              </div>
+              {/* Single indicator triangle centered under the chip row */}
+              <div style={{
+                width: 0,
+                height: 0,
+                borderLeft: "5px solid transparent",
+                borderRight: "5px solid transparent",
+                borderTop: `5px solid ${tip.segments[0]?.bgColor ?? "#1e3a8a"}`,
+              }} />
             </div>
-            {/* Single indicator triangle centered under the chip row */}
-            <div style={{
-              width: 0,
-              height: 0,
-              borderLeft: "5px solid transparent",
-              borderRight: "5px solid transparent",
-              borderTop: `5px solid ${tip.segments[0]?.bgColor ?? "#1e3a8a"}`,
-            }} />
           </div>
-        </div>
-      ))}
+        );
+      })}
 
       {isOpen && (
         <FloatingPanel
