@@ -31,6 +31,29 @@ export interface ElementStyles {
 export function parseColor(colorStr: string): RGB {
   const str = colorStr.trim().toLowerCase();
   
+  // Try using offscreen canvas to let the browser parse any modern color format (oklch, oklab, hsl, hwb, etc.)
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = 1;
+    canvas.height = 1;
+    const ctx = canvas.getContext("2d");
+    if (ctx) {
+      ctx.fillStyle = colorStr;
+      ctx.fillRect(0, 0, 1, 1);
+      const data = ctx.getImageData(0, 0, 1, 1).data;
+      if (data[3] !== 0 || str === "transparent" || str === "rgba(0,0,0,0)" || str === "rgba(0, 0, 0, 0)") {
+        return {
+          r: data[0],
+          g: data[1],
+          b: data[2],
+          a: data[3] / 255
+        };
+      }
+    }
+  } catch (err) {
+    // fallback
+  }
+  
   if (str.startsWith("rgb")) {
     const match = str.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
     if (match) {
@@ -153,8 +176,8 @@ export function extractElementStyles(element: HTMLElement): ElementStyles {
     letterSpacing: style.letterSpacing,
     textAlign: style.textAlign || "left",
     textTransform: style.textTransform || "none",
-    color: style.color,
-    backgroundColor: style.backgroundColor,
+    color: rgbToHex(textColorRGB),
+    backgroundColor: rgbToHex(bgColorRGB),
     textColorRGB,
     bgColorRGB,
     contrastRatio,
