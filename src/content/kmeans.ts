@@ -60,83 +60,59 @@ export function hslToHex(h: number, s: number, l: number): string {
   return `#${f(0)}${f(8)}${f(4)}`;
 }
 
-// Extract dominant colors using simple k-means approximation
-export function extractPalette(colors: RGB[], k = 6): string[] {
+// Extract dominant colors using Frequency + Minimum Distance grouping
+// This perfectly captures distinct UI colors (like pastels and accents) without muddying them
+export function extractPalette(colors: RGB[], k = 12): string[] {
   if (colors.length === 0) {
-    return ["#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899"];
+    return ["#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899", "#111827", "#F3F4F6"];
   }
 
-  // Get unique colors first to prevent initial centroid duplicates
-  const uniqueColorsMap = new Map<string, RGB>();
+  // 1. Count exact frequencies of each Hex Color
+  const frequencyMap = new Map<string, { rgb: RGB, count: number }>();
   for (const c of colors) {
     const hex = rgbToHex(c);
-    if (!uniqueColorsMap.has(hex)) {
-      uniqueColorsMap.set(hex, c);
+    if (frequencyMap.has(hex)) {
+      frequencyMap.get(hex)!.count++;
+    } else {
+      frequencyMap.set(hex, { rgb: c, count: 1 });
     }
   }
-  const uniqueColors = Array.from(uniqueColorsMap.values());
 
-  // Pick k unique points as initial centroids if possible
-  let centroids = uniqueColors.slice(0, k).map(c => ({ ...c }));
-  while (centroids.length < k) {
-    centroids.push({
-      r: Math.floor(Math.random() * 256),
-      g: Math.floor(Math.random() * 256),
-      b: Math.floor(Math.random() * 256)
-    });
-  }
+  // 2. Sort colors by frequency (most used first)
+  const sortedUniqueColors = Array.from(frequencyMap.values()).sort((a, b) => b.count - a.count);
 
-  const maxIterations = 20;
-  for (let iter = 0; iter < maxIterations; iter++) {
-    // Assign colors to centroids
-    const clusters: RGB[][] = Array.from({ length: k }, () => []);
+  const palette: string[] = [];
+  const paletteRgb: RGB[] = [];
+
+  // Minimum squared Euclidean distance to be considered a "distinct" color.
+  // sqrt(1000) is approx 31 RGB units. This allows pastels (Light Green) to be distinct from White,
+  // but merges highly similar shades of dark gray.
+  const DISTANCE_THRESHOLD = 1000;
+
+  // 3. Iterate and build the palette
+  for (const item of sortedUniqueColors) {
+    if (palette.length >= k) break;
+
+    const { rgb } = item;
+    const hex = rgbToHex(rgb);
     
-    for (const color of colors) {
-      let minDist = Infinity;
-      let clusterIndex = 0;
-      
-      for (let i = 0; i < k; i++) {
-        const c = centroids[i];
-        const dist = Math.pow(color.r - c.r, 2) + Math.pow(color.g - c.g, 2) + Math.pow(color.b - c.b, 2);
-        if (dist < minDist) {
-          minDist = dist;
-          clusterIndex = i;
-        }
+    // Check if this color is too similar to any color already in the palette
+    let isDistinct = true;
+    for (const existingRgb of paletteRgb) {
+      const dist = Math.pow(rgb.r - existingRgb.r, 2) + Math.pow(rgb.g - existingRgb.g, 2) + Math.pow(rgb.b - existingRgb.b, 2);
+      if (dist < DISTANCE_THRESHOLD) {
+        isDistinct = false;
+        break;
       }
-      clusters[clusterIndex].push(color);
     }
 
-    // Update centroids
-    for (let i = 0; i < k; i++) {
-      const cluster = clusters[i];
-      if (cluster.length > 0) {
-        const sum = cluster.reduce((acc, curr) => ({ r: acc.r + curr.r, g: acc.g + curr.g, b: acc.b + curr.b }), { r: 0, g: 0, b: 0 });
-        centroids[i] = {
-          r: Math.round(sum.r / cluster.length),
-          g: Math.round(sum.g / cluster.length),
-          b: Math.round(sum.b / cluster.length)
-        };
-      }
+    if (isDistinct) {
+      palette.push(hex);
+      paletteRgb.push(rgb);
     }
   }
 
-  // Snap centroids to the nearest actual color present on the page to prevent "muddy" averages
-  const snappedCentroids = centroids.map(centroid => {
-    let bestColor = centroid;
-    let minD = Infinity;
-    for (const c of uniqueColors) {
-      const dist = Math.pow(c.r - centroid.r, 2) + Math.pow(c.g - centroid.g, 2) + Math.pow(c.b - centroid.b, 2);
-      if (dist < minD) {
-        minD = dist;
-        bestColor = c;
-      }
-    }
-    return bestColor;
-  });
-
-  // Convert to unique hex color strings
-  const hexes = snappedCentroids.map(rgbToHex);
-  return Array.from(new Set(hexes));
+  return palette;
 }
 
 // Scan webpage elements for colors

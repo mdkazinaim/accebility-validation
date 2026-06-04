@@ -411,10 +411,11 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
     }
   };
 
-  // Scan and Extract dominant palette
+  // Scan and Extract dominant palette from full DOM
   const handleExtractPalette = () => {
+    // Fallback to DOM scanning if screenshot fails
     const rawColors = scanPageColors();
-    const hexPalette = extractPalette(rawColors, 8);
+    const hexPalette = extractPalette(rawColors, 12);
     const cleanPalette = hexPalette.filter(Boolean);
     setDominantPalette(cleanPalette);
     if (cleanPalette.length > 0) {
