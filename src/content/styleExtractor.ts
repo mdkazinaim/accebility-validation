@@ -27,63 +27,19 @@ export interface ElementStyles {
   padding: string;
 }
 
-// Module-level singleton canvas – created once and reused for every colour parse
-// to avoid the heavy cost of DOM element allocation on each call.
-let _canvas: HTMLCanvasElement | null = null;
-let _ctx: CanvasRenderingContext2D | null = null;
 
-function getCtx(): CanvasRenderingContext2D | null {
-  if (_ctx) return _ctx;
-  try {
-    _canvas = document.createElement("canvas");
-    _canvas.width = 1;
-    _canvas.height = 1;
-    _ctx = _canvas.getContext("2d");
-  } catch {
-    _ctx = null;
-  }
-  return _ctx;
-}
+
+let tempEl: HTMLElement | null = null;
 
 // Convert rgb/rgba or hex string to RGB
 export function parseColor(colorStr: string): RGB {
   const str = colorStr.trim().toLowerCase();
   
-  // Try using singleton canvas to let the browser parse any modern color format
-  // (oklch, oklab, hsl, hwb, named colours, etc.)
-  try {
-    const ctx = getCtx();
-    if (ctx) {
-      ctx.clearRect(0, 0, 1, 1);
-      ctx.fillStyle = "rgba(0,0,0,0)";
-      ctx.fillStyle = colorStr;
-      ctx.fillRect(0, 0, 1, 1);
-      const data = ctx.getImageData(0, 0, 1, 1).data;
-      if (data[3] !== 0 || str === "transparent" || str === "rgba(0,0,0,0)" || str === "rgba(0, 0, 0, 0)") {
-        return {
-          r: data[0],
-          g: data[1],
-          b: data[2],
-          a: data[3] / 255
-        };
-      }
-    }
-  } catch {
-    // fallback below
-  }
-  
-  if (str.startsWith("rgb")) {
-    const match = str.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
-    if (match) {
-      return {
-        r: parseInt(match[1], 10),
-        g: parseInt(match[2], 10),
-        b: parseInt(match[3], 10),
-        a: match[4] !== undefined ? parseFloat(match[4]) : 1
-      };
-    }
+  if (str === "transparent" || str === "rgba(0,0,0,0)" || str === "rgba(0, 0, 0, 0)" || str === "none") {
+    return { r: 0, g: 0, b: 0, a: 0 };
   }
 
+  // If it's already a clean hex, parse it fast without DOM lookup
   if (str.startsWith("#")) {
     const hex = str.slice(1);
     if (hex.length === 3) {
@@ -94,18 +50,78 @@ export function parseColor(colorStr: string): RGB {
         a: 1
       };
     }
-    if (hex.length === 6 || hex.length === 8) {
+    if (hex.length === 6) {
       return {
         r: parseInt(hex.slice(0, 2), 16),
         g: parseInt(hex.slice(2, 4), 16),
         b: parseInt(hex.slice(4, 6), 16),
-        a: hex.length === 8 ? parseInt(hex.slice(6, 8), 16) / 255 : 1
+        a: 1
+      };
+    }
+    if (hex.length === 8) {
+      return {
+        r: parseInt(hex.slice(0, 2), 16),
+        g: parseInt(hex.slice(2, 4), 16),
+        b: parseInt(hex.slice(4, 6), 16),
+        a: parseInt(hex.slice(6, 8), 16) / 255
+      };
+    }
+  }
+
+  // Use the browser's native CSS engine for parsing anything else
+  try {
+    if (!tempEl) {
+      tempEl = document.createElement("div");
+      tempEl.id = "accessibility-inspector-color-parser-temp";
+      tempEl.style.display = "none";
+      tempEl.style.position = "absolute";
+      tempEl.style.width = "0";
+      tempEl.style.height = "0";
+      const root = document.body || document.documentElement;
+      if (root) root.appendChild(tempEl);
+    }
+
+    tempEl.style.color = "";
+    tempEl.style.color = colorStr;
+    const computed = window.getComputedStyle(tempEl).color;
+
+    // Computed style color is always returned as rgb(r, g, b) or rgba(r, g, b, a) by the browser
+    const match = computed.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
+    if (match) {
+      return {
+        r: parseInt(match[1], 10),
+        g: parseInt(match[2], 10),
+        b: parseInt(match[3], 10),
+        a: match[4] !== undefined ? parseFloat(match[4]) : 1
+      };
+    }
+  } catch (e) {
+    console.warn("Native color parse failed, falling back:", e);
+  }
+
+  // Secondary fallback: manual rgb parsing if elements can't be created
+  if (str.startsWith("rgb")) {
+    const match = str.match(/rgba?\((\d+)[,\s]+(\d+)[,\s]+(\d+)(?:[,\s/]+([\d.%]+))?\)/);
+    if (match) {
+      const alphaStr = match[4];
+      let a = 1;
+      if (alphaStr) {
+        if (alphaStr.endsWith("%")) {
+          a = parseFloat(alphaStr) / 100;
+        } else {
+          a = parseFloat(alphaStr);
+        }
+      }
+      return {
+        r: parseInt(match[1], 10),
+        g: parseInt(match[2], 10),
+        b: parseInt(match[3], 10),
+        a
       };
     }
   }
 
   const colors: Record<string, RGB> = {
-    transparent: { r: 0, g: 0, b: 0, a: 0 },
     white: { r: 255, g: 255, b: 255, a: 1 },
     black: { r: 0, g: 0, b: 0, a: 1 },
     red: { r: 255, g: 0, b: 0, a: 1 },

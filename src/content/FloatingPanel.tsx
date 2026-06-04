@@ -26,6 +26,10 @@ interface FloatingPanelProps {
   setActiveTab: (tab: "inspect" | "colors" | "fonts" | "images") => void;
   showContrastTooltips: boolean;
   setShowContrastTooltips: (show: boolean) => void;
+  onTriggerEyeDropper?: () => void;
+  hidden?: boolean;
+  selectedColor: string;
+  setSelectedColor: (color: string) => void;
 }
 
 interface ScannedFont {
@@ -56,6 +60,10 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
   setActiveTab,
   showContrastTooltips,
   setShowContrastTooltips,
+  onTriggerEyeDropper,
+  hidden,
+  selectedColor,
+  setSelectedColor: onSetSelectedColor,
 }) => {
   const [activeItemIndex, setActiveItemIndex] = useState(0);
   const [isMinimized, setIsMinimized] = useState(false);
@@ -63,7 +71,6 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
 
   // Color tab state
   const [dominantPalette, setDominantPalette] = useState<string[]>([]);
-  const [selectedColorState, setSelectedColorState] = useState<string>("#3B82F6");
 
   const normalizeToHex = (colorStr: string): string => {
     if (!colorStr) return "#3B82F6";
@@ -82,9 +89,8 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
   };
 
   const setSelectedColor = (color: string) => {
-    setSelectedColorState(normalizeToHex(color));
+    onSetSelectedColor(normalizeToHex(color));
   };
-  const selectedColor = selectedColorState;
 
   // Fonts tab state
   const [scannedFamilies, setScannedFamilies] = useState<ScannedFont[]>([]);
@@ -98,6 +104,10 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
   const [highlightedSize, setHighlightedSize] = useState<string | null>(null);
   const highlightedElementsRef = useRef<HTMLElement[]>([]);
   const originalStylesRef = useRef<Map<HTMLElement, { outline: string; outlineOffset: string; boxShadow: string }>>(new Map());
+
+  // Color highlighting refs
+  const highlightedColorElementsRef = useRef<HTMLElement[]>([]);
+  const originalColorStylesRef = useRef<Map<HTMLElement, { outline: string; outlineOffset: string; boxShadow: string }>>(new Map());
 
   // Drag state for open panel
   const [position, setPosition] = useState({ x: window.innerWidth - 400, y: 16 });
@@ -225,6 +235,73 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
     setHighlightedSize(null);
   };
 
+  const clearColorHighlights = () => {
+    highlightedColorElementsRef.current.forEach(el => {
+      const orig = originalColorStylesRef.current.get(el);
+      if (orig) {
+        el.style.outline = orig.outline;
+        el.style.outlineOffset = orig.outlineOffset;
+        el.style.boxShadow = orig.boxShadow;
+      }
+    });
+    highlightedColorElementsRef.current = [];
+    originalColorStylesRef.current.clear();
+  };
+
+  const highlightColorElements = (colorHex: string | null) => {
+    clearColorHighlights();
+    if (!colorHex) return;
+
+    const targetHex = colorHex.toUpperCase();
+    const allElements = Array.from(document.querySelectorAll("*")) as HTMLElement[];
+    const shadowHost = document.getElementById("accessibility-inspector-extension-root");
+
+    const matches = allElements.filter(el => {
+      if (shadowHost && shadowHost.contains(el)) return false;
+      if (el.offsetWidth === 0 && el.offsetHeight === 0) return false;
+
+      try {
+        const style = window.getComputedStyle(el);
+        
+        const isMatch = (colorStr: string) => {
+          if (!colorStr || colorStr === "rgba(0, 0, 0, 0)" || colorStr === "transparent" || colorStr === "none") return false;
+          return normalizeToHex(colorStr) === targetHex;
+        };
+
+        const tagName = el.tagName.toLowerCase();
+        const hasSvgMatch = (tagName === "path" || tagName === "rect" || tagName === "circle" || tagName === "polygon" || tagName === "ellipse") &&
+          (isMatch(style.fill) || isMatch(style.stroke));
+
+        let hasDirectText = false;
+        for (let j = 0; j < el.childNodes.length; j++) {
+          if (el.childNodes[j].nodeType === Node.TEXT_NODE && el.childNodes[j].nodeValue?.trim()) {
+            hasDirectText = true;
+            break;
+          }
+        }
+
+        const hasTextColorMatch = hasDirectText && isMatch(style.color);
+        return isMatch(style.backgroundColor) || hasTextColorMatch || hasSvgMatch;
+      } catch {
+        return false;
+      }
+    });
+
+    matches.forEach(el => {
+      originalColorStylesRef.current.set(el, {
+        outline: el.style.outline,
+        outlineOffset: el.style.outlineOffset,
+        boxShadow: el.style.boxShadow,
+      });
+
+      el.style.outline = "3px dashed #3b82f6";
+      el.style.outlineOffset = "-3px";
+      el.style.boxShadow = "0 0 12px rgba(59, 130, 246, 0.7)";
+    });
+
+    highlightedColorElementsRef.current = matches;
+  };
+
   const highlightFontProperty = (type: "family" | "size", value: string) => {
     clearFontHighlights();
 
@@ -289,6 +366,7 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
   useEffect(() => {
     return () => {
       clearFontHighlights();
+      clearColorHighlights();
     };
   }, []);
 
@@ -298,19 +376,15 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
     }
   }, [activeTab]);
 
-  // Listen to native EyeDropper events from ContentApp
   useEffect(() => {
-    const handleEyedropperColor = (e: Event) => {
-      const color = (e as CustomEvent).detail;
-      if (color) {
-        setSelectedColor(color);
-      }
-    };
-    window.addEventListener("eyedropper-color-selected", handleEyedropperColor);
-    return () => {
-      window.removeEventListener("eyedropper-color-selected", handleEyedropperColor);
-    };
-  }, []);
+    if (activeTab === "colors" && selectedColor) {
+      highlightColorElements(selectedColor);
+    } else {
+      clearColorHighlights();
+    }
+  }, [selectedColor, activeTab]);
+
+
 
   // Auto scan on load & when tab changes
   useEffect(() => {
@@ -327,42 +401,13 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
   };
 
   // Eyedropper API handler
-  const handleEyeDropper = async () => {
+  const handleEyeDropper = () => {
     if (!("EyeDropper" in window)) {
       alert("EyeDropper API is not supported in this browser. Please use a Chromium-based browser (Chrome, Edge, Brave).");
       return;
     }
-
-    // Temporarily turn off hover inspector if active to prevent conflict
-    const wasInspectorActive = inspectorActive;
-    if (wasInspectorActive) setInspectorActive(false);
-
-    // Inject styles to temporarily disable hover states on page elements
-    const styleEl = document.createElement("style");
-    styleEl.id = "accessibility-inspector-eyedropper-style";
-    styleEl.textContent = `
-      *:not(#accessibility-inspector-extension-root) {
-        pointer-events: none !important;
-      }
-    `;
-    document.head.appendChild(styleEl);
-
-    try {
-      const eyeDropper = new (window as any).EyeDropper();
-      const result = await eyeDropper.open();
-      if (result && result.sRGBHex) {
-        setSelectedColor(result.sRGBHex);
-        setActiveTab("colors");
-        setIsMinimized(false);
-      }
-    } catch (e) {
-      console.warn("EyeDropper aborted:", e);
-    } finally {
-      // Remove injected styles
-      const targetStyle = document.getElementById("accessibility-inspector-eyedropper-style");
-      if (targetStyle) targetStyle.remove();
-
-      if (wasInspectorActive) setInspectorActive(true);
+    if (onTriggerEyeDropper) {
+      onTriggerEyeDropper();
     }
   };
 
@@ -525,8 +570,8 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
           left: `${logoLeft}px`,
           top: `${logoTop}px`,
           transition: isDraggingLogo ? "none" : "left 0.3s cubic-bezier(0.4, 0, 0.2, 1), top 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease",
-          opacity: isMinimized ? 1 : 0,
-          pointerEvents: isMinimized ? "auto" : "none",
+          opacity: isMinimized && !hidden ? 1 : 0,
+          pointerEvents: isMinimized && !hidden ? "auto" : "none",
           width: "48px",
           height: "48px",
           display: "flex",
@@ -551,8 +596,8 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
             : `${position.x}px`,
           height: "calc(100vh - 32px)",
           transition: isDragging ? "none" : "left 0.3s cubic-bezier(0.4, 0, 0.2, 1), top 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease",
-          opacity: isMinimized ? 0 : 1,
-          pointerEvents: isMinimized ? "none" : "auto",
+          opacity: isMinimized || hidden ? 0 : 1,
+          pointerEvents: isMinimized || hidden ? "none" : "auto",
         }}
         className="fixed w-96 bg-slate-950/95 backdrop-blur-md text-slate-100 rounded-2xl border border-slate-800 shadow-2xl z-[2000000] flex flex-col overflow-hidden font-sans"
       >

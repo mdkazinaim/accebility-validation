@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { InspectorOverlay } from "./InspectorOverlay";
 import { FloatingPanel } from "./FloatingPanel";
-import { ElementStyles, extractElementStyles } from "./styleExtractor";
+import { ElementStyles, extractElementStyles, parseColor } from "./styleExtractor";
 import {
   MousePointer,
   Type,
@@ -92,6 +92,28 @@ export const ContentApp: React.FC = () => {
   const [selectedTextElements, setSelectedTextElements] = useState<{ id: string; element: HTMLElement; styles: ElementStyles; textContent: string }[]>([]);
   const [activeSelectedTextId, setActiveSelectedTextId] = useState<string | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [isEyedropperActive, setIsEyedropperActive] = useState(false);
+  const [selectedColor, setSelectedColorState] = useState<string>("#3B82F6");
+
+  const normalizeToHex = (colorStr: string): string => {
+    if (!colorStr) return "#3B82F6";
+    const clean = colorStr.trim();
+    if (clean.startsWith("#") && (clean.length === 7 || clean.length === 4)) {
+      return clean.toUpperCase();
+    }
+    const parsed = parseColor(clean);
+    if (parsed && !isNaN(parsed.r)) {
+      const r = Math.round(parsed.r).toString(16).padStart(2, "0");
+      const g = Math.round(parsed.g).toString(16).padStart(2, "0");
+      const b = Math.round(parsed.b).toString(16).padStart(2, "0");
+      return `#${r}${g}${b}`.toUpperCase();
+    }
+    return clean;
+  };
+
+  const setSelectedColor = (color: string) => {
+    setSelectedColorState(normalizeToHex(color));
+  };
 
   const copyToClipboard = (text: string) => {
     if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -190,6 +212,8 @@ export const ContentApp: React.FC = () => {
     const wasInspectorActive = inspectorActive;
     if (wasInspectorActive) setInspectorActive(false);
 
+    setIsEyedropperActive(true);
+
     // Inject styles to temporarily disable hover states on page elements
     const styleEl = document.createElement("style");
     styleEl.id = "accessibility-inspector-eyedropper-style";
@@ -204,16 +228,15 @@ export const ContentApp: React.FC = () => {
       const eyeDropper = new (window as any).EyeDropper();
       const result = await eyeDropper.open();
       if (result && result.sRGBHex) {
+        setSelectedColor(result.sRGBHex);
         // Force-open panel and set tab to colors
         setIsOpen(true);
         setFocusedTab("colors");
-        // Dispatch custom event to let FloatingPanel sync selected color if necessary
-        const event = new CustomEvent("eyedropper-color-selected", { detail: result.sRGBHex });
-        window.dispatchEvent(event);
       }
     } catch (e) {
       console.warn("EyeDropper aborted:", e);
     } finally {
+      setIsEyedropperActive(false);
       // Remove injected styles
       const targetStyle = document.getElementById("accessibility-inspector-eyedropper-style");
       if (targetStyle) targetStyle.remove();
@@ -732,6 +755,7 @@ export const ContentApp: React.FC = () => {
 
       {isOpen && (
         <FloatingPanel
+          hidden={isEyedropperActive}
           inspectorActive={inspectorActive}
           setInspectorActive={setInspectorActive}
           lockedItems={lockedItems}
@@ -742,11 +766,17 @@ export const ContentApp: React.FC = () => {
           setActiveTab={setFocusedTab}
           showContrastTooltips={showContrastTooltips}
           setShowContrastTooltips={setShowContrastTooltips}
+          onTriggerEyeDropper={triggerNativeEyeDropper}
+          selectedColor={selectedColor}
+          setSelectedColor={setSelectedColor}
         />
       )}
 
       {isMenuOpen && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[2000000] flex flex-col items-center gap-2 pointer-events-none select-none">
+        <div
+          style={{ display: isEyedropperActive ? "none" : "flex" }}
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[2000000] flex flex-col items-center gap-2 pointer-events-none select-none"
+        >
           {/* Detailed Properties Card */}
           {textInspectorActive && (() => {
             const activeItem = selectedTextElements.find(item => item.id === activeSelectedTextId);

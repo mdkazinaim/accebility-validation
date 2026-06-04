@@ -63,13 +63,27 @@ export function hslToHex(h: number, s: number, l: number): string {
 // Extract dominant colors using simple k-means approximation
 export function extractPalette(colors: RGB[], k = 6): string[] {
   if (colors.length === 0) {
-    return ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899"];
+    return ["#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899"];
   }
 
-  // Pick k random points as initial centroids
-  let centroids = colors.slice(0, k).map(c => ({ ...c }));
+  // Get unique colors first to prevent initial centroid duplicates
+  const uniqueColorsMap = new Map<string, RGB>();
+  for (const c of colors) {
+    const hex = rgbToHex(c);
+    if (!uniqueColorsMap.has(hex)) {
+      uniqueColorsMap.set(hex, c);
+    }
+  }
+  const uniqueColors = Array.from(uniqueColorsMap.values());
+
+  // Pick k unique points as initial centroids if possible
+  let centroids = uniqueColors.slice(0, k).map(c => ({ ...c }));
   while (centroids.length < k) {
-    centroids.push({ r: Math.random() * 255, g: Math.random() * 255, b: Math.random() * 255 });
+    centroids.push({
+      r: Math.floor(Math.random() * 256),
+      g: Math.floor(Math.random() * 256),
+      b: Math.floor(Math.random() * 256)
+    });
   }
 
   const maxIterations = 5;
@@ -114,33 +128,76 @@ export function extractPalette(colors: RGB[], k = 6): string[] {
 // Scan webpage elements for colors
 export function scanPageColors(): RGB[] {
   const colors: RGB[] = [];
-  const elements = Array.from(document.querySelectorAll("body, body *"));
+  // Ignore scripts, styles, and the extension's own container elements
+  const selector = "body *:not(script):not(style):not(#accessibility-inspector-extension-root):not(#accessibility-inspector-extension-root *)";
+  const elements = Array.from(document.querySelectorAll(selector));
   
-  // Sample up to 300 elements
-  const sampleStep = Math.max(1, Math.floor(elements.length / 300));
-  for (let i = 0; i < elements.length; i += sampleStep) {
-    const el = elements[i] as HTMLElement;
-    if (el.nodeType !== Node.ELEMENT_NODE) continue;
+  // Sample up to 1000 elements for accuracy while preserving excellent performance
+  let sampledElements = elements;
+  if (elements.length > 1000) {
+    const step = Math.floor(elements.length / 1000);
+    sampledElements = [];
+    for (let i = 0; i < elements.length; i += step) {
+      sampledElements.push(elements[i]);
+    }
+  }
+
+  for (const el of sampledElements) {
+    const htmlEl = el as HTMLElement;
+    if (htmlEl.nodeType !== Node.ELEMENT_NODE) continue;
     
     try {
-      const style = window.getComputedStyle(el);
-      const bg = style.backgroundColor;
-      const fg = style.color;
+      const style = window.getComputedStyle(htmlEl);
       
+      // 1. Background colors
+      const bg = style.backgroundColor;
       if (bg && bg !== "rgba(0, 0, 0, 0)" && bg !== "transparent") {
         const parsedBg = parseColor(bg);
         if (parsedBg && parsedBg.a !== 0 && !isNaN(parsedBg.r)) {
           colors.push(parsedBg);
         }
       }
-      if (fg && fg !== "rgba(0, 0, 0, 0)" && fg !== "transparent") {
-        const parsedFg = parseColor(fg);
-        if (parsedFg && parsedFg.a !== 0 && !isNaN(parsedFg.r)) {
-          colors.push(parsedFg);
+      
+      // 2. Text colors (only if element has direct text content, avoiding redundant inherits)
+      let hasDirectText = false;
+      for (let j = 0; j < htmlEl.childNodes.length; j++) {
+        if (htmlEl.childNodes[j].nodeType === Node.TEXT_NODE && htmlEl.childNodes[j].nodeValue?.trim()) {
+          hasDirectText = true;
+          break;
+        }
+      }
+      
+      if (hasDirectText) {
+        const fg = style.color;
+        if (fg && fg !== "rgba(0, 0, 0, 0)" && fg !== "transparent") {
+          const parsedFg = parseColor(fg);
+          if (parsedFg && parsedFg.a !== 0 && !isNaN(parsedFg.r)) {
+            colors.push(parsedFg);
+          }
+        }
+      }
+
+      // 3. SVG colors (fill & stroke)
+      const tagName = htmlEl.tagName.toLowerCase();
+      if (tagName === "path" || tagName === "rect" || tagName === "circle" || tagName === "polygon" || tagName === "ellipse") {
+        const fill = style.fill;
+        if (fill && fill !== "none" && fill !== "rgba(0, 0, 0, 0)" && fill !== "transparent") {
+          const parsedFill = parseColor(fill);
+          if (parsedFill && parsedFill.a !== 0 && !isNaN(parsedFill.r)) {
+            colors.push(parsedFill);
+          }
+        }
+        
+        const stroke = style.stroke;
+        if (stroke && stroke !== "none" && stroke !== "rgba(0, 0, 0, 0)" && stroke !== "transparent") {
+          const parsedStroke = parseColor(stroke);
+          if (parsedStroke && parsedStroke.a !== 0 && !isNaN(parsedStroke.r)) {
+            colors.push(parsedStroke);
+          }
         }
       }
     } catch {
-      // ignore styles exceptions
+      // ignore style reading exceptions
     }
   }
   return colors;
