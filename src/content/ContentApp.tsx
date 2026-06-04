@@ -11,7 +11,9 @@ import {
   Layout,
   Power,
   Pipette,
-  X
+  X,
+  Copy,
+  Check
 } from "lucide-react";
 
 const isTextElement = (el: HTMLElement): boolean => {
@@ -51,6 +53,40 @@ export const ContentApp: React.FC = () => {
   const [hoveredTextStyles, setHoveredTextStyles] = useState<ElementStyles | null>(null);
   const [selectedTextElements, setSelectedTextElements] = useState<{ id: string; element: HTMLElement; styles: ElementStyles; textContent: string }[]>([]);
   const [activeSelectedTextId, setActiveSelectedTextId] = useState<string | null>(null);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  const copyToClipboard = (text: string) => {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).catch(() => {
+        fallbackCopyText(text);
+      });
+    } else {
+      fallbackCopyText(text);
+    }
+  };
+
+  const fallbackCopyText = (text: string) => {
+    const textArea = document.createElement("textarea");
+    textArea.value = text;
+    textArea.style.position = "fixed";
+    textArea.style.left = "-999999px";
+    textArea.style.top = "-999999px";
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    try {
+      document.execCommand("copy");
+    } catch (err) {
+      console.warn("Fallback copy failed:", err);
+    }
+    document.body.removeChild(textArea);
+  };
+
+  const handleCopyField = (fieldName: string, value: string) => {
+    copyToClipboard(value);
+    setCopiedField(fieldName);
+    setTimeout(() => setCopiedField(null), 1500);
+  };
 
   // Sync state and respond to messages from popup or background scripts
   useEffect(() => {
@@ -617,7 +653,7 @@ export const ContentApp: React.FC = () => {
             const activeItem = selectedTextElements.find(item => item.id === activeSelectedTextId);
             if (!activeItem) return null;
             return (
-              <div className="bg-slate-950/95 backdrop-blur-md border border-slate-800 p-4 rounded-xl shadow-2xl w-[500px] pointer-events-auto flex flex-col gap-3 text-slate-100 text-xs">
+              <div className="bg-slate-950/95 backdrop-blur-md border border-slate-800 p-4 rounded-xl shadow-2xl w-[500px] pointer-events-auto flex flex-col gap-3 text-slate-100 text-xs select-text">
                 <div className="flex items-center justify-between border-b border-slate-900 pb-2">
                   <span className="font-semibold text-blue-400 font-mono">"{activeItem.textContent}" Properties</span>
                   <button
@@ -629,47 +665,146 @@ export const ContentApp: React.FC = () => {
                 </div>
                 
                 <div className="grid grid-cols-2 gap-x-6 gap-y-2 font-mono text-[11px]">
-                  <div className="flex justify-between border-b border-slate-900/50 py-1">
-                    <span className="text-slate-400">Font Family</span>
-                    <span className="text-slate-200 text-right truncate max-w-[150px]" title={activeItem.styles.fontFamily}>
-                      {activeItem.styles.fontFamily.split(",")[0]}
-                    </span>
-                  </div>
-                  <div className="flex justify-between border-b border-slate-900/50 py-1">
-                    <span className="text-slate-400">Font Size</span>
-                    <span className="text-slate-200">{activeItem.styles.fontSize}</span>
-                  </div>
-                  <div className="flex justify-between border-b border-slate-900/50 py-1">
-                    <span className="text-slate-400">Font Weight</span>
-                    <span className="text-slate-200">{activeItem.styles.fontWeight}</span>
-                  </div>
-                  <div className="flex justify-between border-b border-slate-900/50 py-1">
-                    <span className="text-slate-400">Line Height</span>
-                    <span className="text-slate-200">{activeItem.styles.lineHeight}</span>
-                  </div>
-                  <div className="flex justify-between border-b border-slate-900/50 py-1">
-                    <span className="text-slate-400">Text Color</span>
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 rounded-full border border-slate-700" style={{ backgroundColor: activeItem.styles.color }} />
-                      <span className="text-slate-200">{activeItem.styles.color}</span>
+                  <div 
+                    onClick={() => handleCopyField("fontFamily", activeItem.styles.fontFamily)}
+                    className="flex justify-between border-b border-slate-900/50 py-1.5 px-1 hover:bg-slate-900/50 rounded cursor-pointer transition-colors group select-all"
+                  >
+                    <span className="text-slate-400 group-hover:text-slate-300">Font Family</span>
+                    <div className="flex items-center gap-1">
+                      <span className="text-slate-200 text-right truncate max-w-[150px]" title={activeItem.styles.fontFamily}>
+                        {copiedField === "fontFamily" ? "Copied!" : activeItem.styles.fontFamily.split(",")[0]}
+                      </span>
+                      {copiedField === "fontFamily" ? (
+                        <Check className="w-3 h-3 text-emerald-400" />
+                      ) : (
+                        <Copy className="w-3 h-3 text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      )}
                     </div>
                   </div>
-                  <div className="flex justify-between border-b border-slate-900/50 py-1">
-                    <span className="text-slate-400">Background</span>
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 rounded-full border border-slate-700" style={{ backgroundColor: activeItem.styles.backgroundColor }} />
-                      <span className="text-slate-200">{activeItem.styles.backgroundColor}</span>
+
+                  <div 
+                    onClick={() => handleCopyField("fontSize", activeItem.styles.fontSize)}
+                    className="flex justify-between border-b border-slate-900/50 py-1.5 px-1 hover:bg-slate-900/50 rounded cursor-pointer transition-colors group select-all"
+                  >
+                    <span className="text-slate-400 group-hover:text-slate-300">Font Size</span>
+                    <div className="flex items-center gap-1">
+                      <span className="text-slate-200">
+                        {copiedField === "fontSize" ? "Copied!" : activeItem.styles.fontSize}
+                      </span>
+                      {copiedField === "fontSize" ? (
+                        <Check className="w-3 h-3 text-emerald-400" />
+                      ) : (
+                        <Copy className="w-3 h-3 text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      )}
                     </div>
                   </div>
-                  <div className="flex justify-between border-b border-slate-900/50 py-1">
-                    <span className="text-slate-400">Contrast</span>
-                    <span className={`font-bold ${activeItem.styles.contrastRatio >= 4.5 ? "text-emerald-400" : "text-rose-400"}`}>
-                      {activeItem.styles.contrastRatio.toFixed(1)}:1
-                    </span>
+
+                  <div 
+                    onClick={() => handleCopyField("fontWeight", activeItem.styles.fontWeight)}
+                    className="flex justify-between border-b border-slate-900/50 py-1.5 px-1 hover:bg-slate-900/50 rounded cursor-pointer transition-colors group select-all"
+                  >
+                    <span className="text-slate-400 group-hover:text-slate-300">Font Weight</span>
+                    <div className="flex items-center gap-1">
+                      <span className="text-slate-200">
+                        {copiedField === "fontWeight" ? "Copied!" : activeItem.styles.fontWeight}
+                      </span>
+                      {copiedField === "fontWeight" ? (
+                        <Check className="w-3 h-3 text-emerald-400" />
+                      ) : (
+                        <Copy className="w-3 h-3 text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      )}
+                    </div>
                   </div>
-                  <div className="flex justify-between border-b border-slate-900/50 py-1">
-                    <span className="text-slate-400">Text Align</span>
-                    <span className="text-slate-200">{activeItem.styles.textAlign}</span>
+
+                  <div 
+                    onClick={() => handleCopyField("lineHeight", activeItem.styles.lineHeight)}
+                    className="flex justify-between border-b border-slate-900/50 py-1.5 px-1 hover:bg-slate-900/50 rounded cursor-pointer transition-colors group select-all"
+                  >
+                    <span className="text-slate-400 group-hover:text-slate-300">Line Height</span>
+                    <div className="flex items-center gap-1">
+                      <span className="text-slate-200">
+                        {copiedField === "lineHeight" ? "Copied!" : activeItem.styles.lineHeight}
+                      </span>
+                      {copiedField === "lineHeight" ? (
+                        <Check className="w-3 h-3 text-emerald-400" />
+                      ) : (
+                        <Copy className="w-3 h-3 text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      )}
+                    </div>
+                  </div>
+
+                  <div 
+                    onClick={() => handleCopyField("color", activeItem.styles.color)}
+                    className="flex justify-between border-b border-slate-900/50 py-1.5 px-1 hover:bg-slate-900/50 rounded cursor-pointer transition-colors group select-all"
+                  >
+                    <span className="text-slate-400 group-hover:text-slate-300">Text Color</span>
+                    <div className="flex items-center gap-1.5">
+                      {copiedField !== "color" && (
+                        <span className="w-2.5 h-2.5 rounded-full border border-slate-700" style={{ backgroundColor: activeItem.styles.color }} />
+                      )}
+                      <span className="text-slate-200">
+                        {copiedField === "color" ? "Copied!" : activeItem.styles.color}
+                      </span>
+                      {copiedField === "color" ? (
+                        <Check className="w-3 h-3 text-emerald-400" />
+                      ) : (
+                        <Copy className="w-3 h-3 text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      )}
+                    </div>
+                  </div>
+
+                  <div 
+                    onClick={() => handleCopyField("backgroundColor", activeItem.styles.backgroundColor)}
+                    className="flex justify-between border-b border-slate-900/50 py-1.5 px-1 hover:bg-slate-900/50 rounded cursor-pointer transition-colors group select-all"
+                  >
+                    <span className="text-slate-400 group-hover:text-slate-300">Background</span>
+                    <div className="flex items-center gap-1.5">
+                      {copiedField !== "backgroundColor" && (
+                        <span className="w-2.5 h-2.5 rounded-full border border-slate-700" style={{ backgroundColor: activeItem.styles.backgroundColor }} />
+                      )}
+                      <span className="text-slate-200">
+                        {copiedField === "backgroundColor" ? "Copied!" : activeItem.styles.backgroundColor}
+                      </span>
+                      {copiedField === "backgroundColor" ? (
+                        <Check className="w-3 h-3 text-emerald-400" />
+                      ) : (
+                        <Copy className="w-3 h-3 text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      )}
+                    </div>
+                  </div>
+
+                  <div 
+                    onClick={() => handleCopyField("contrast", activeItem.styles.contrastRatio.toFixed(1) + ":1")}
+                    className="flex justify-between border-b border-slate-900/50 py-1.5 px-1 hover:bg-slate-900/50 rounded cursor-pointer transition-colors group select-all"
+                  >
+                    <span className="text-slate-400 group-hover:text-slate-300">Contrast</span>
+                    <div className="flex items-center gap-1">
+                      <span className={copiedField === "contrast" ? "text-emerald-400" : `font-bold ${activeItem.styles.contrastRatio >= 4.5 ? "text-emerald-400" : "text-rose-400"}`}>
+                        {copiedField === "contrast" ? "Copied!" : `${activeItem.styles.contrastRatio.toFixed(1)}:1`}
+                      </span>
+                      {copiedField === "contrast" ? (
+                        <Check className="w-3 h-3 text-emerald-400" />
+                      ) : (
+                        <Copy className="w-3 h-3 text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      )}
+                    </div>
+                  </div>
+
+                  <div 
+                    onClick={() => handleCopyField("textAlign", activeItem.styles.textAlign)}
+                    className="flex justify-between border-b border-slate-900/50 py-1.5 px-1 hover:bg-slate-900/50 rounded cursor-pointer transition-colors group select-all"
+                  >
+                    <span className="text-slate-400 group-hover:text-slate-300">Text Align</span>
+                    <div className="flex items-center gap-1">
+                      <span className="text-slate-200">
+                        {copiedField === "textAlign" ? "Copied!" : activeItem.styles.textAlign}
+                      </span>
+                      {copiedField === "textAlign" ? (
+                        <Check className="w-3 h-3 text-emerald-400" />
+                      ) : (
+                        <Copy className="w-3 h-3 text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
