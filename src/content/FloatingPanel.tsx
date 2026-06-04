@@ -142,8 +142,12 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
       const dy = Math.abs(e.clientY - logoClickStartPos.current.y);
       
       if (dx < 5 && dy < 5) {
-        // Quick click - restore panel
+        // Quick click - restore panel to default position
         setIsMinimized(false);
+        setPosition({
+          x: dockEdge === "right" ? window.innerWidth - 400 : 16,
+          y: 16
+        });
       } else {
         // Reposition and snap to nearest edge
         const isCloserToLeft = e.clientX < window.innerWidth / 2;
@@ -155,7 +159,7 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
         
         setPosition({
           x: finalEdge === "right" ? window.innerWidth - 400 : 16,
-          y: finalY
+          y: 16
         });
       }
       setLogoDragPos(null);
