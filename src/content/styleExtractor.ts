@@ -55,6 +55,7 @@ export function parseColor(colorStr: string): RGB {
     const ctx = getCtx();
     if (ctx) {
       ctx.clearRect(0, 0, 1, 1);
+      ctx.fillStyle = "rgba(0,0,0,0)";
       ctx.fillStyle = colorStr;
       ctx.fillRect(0, 0, 1, 1);
       const data = ctx.getImageData(0, 0, 1, 1).data;
@@ -135,20 +136,36 @@ function getShorthand(top: string, right: string, bottom: string, left: string):
   return `${t} ${r} ${b} ${l}`;
 }
 
-// Climb DOM tree to find non-transparent background color
+// Climb DOM tree to find and composite background colors
 export function resolveBackgroundColor(element: HTMLElement): RGB {
   let el: HTMLElement | null = element;
+  const layers: RGB[] = [];
+  
   while (el) {
     const style = window.getComputedStyle(el);
     const bgColor = style.backgroundColor;
     const parsed = parseColor(bgColor);
-    if (parsed.a !== undefined && parsed.a > 0.05) {
-      return parsed;
+    if (parsed.a !== undefined && parsed.a > 0) {
+      layers.push(parsed);
+      if (parsed.a === 1) break; // Found fully opaque background
     }
     if (el.tagName === "HTML") break;
     el = el.parentElement;
   }
-  return { r: 255, g: 255, b: 255, a: 1 };
+  
+  // Composite from bottom (body) to top (element)
+  let finalColor = { r: 255, g: 255, b: 255, a: 1 }; // Default white background
+  for (let i = layers.length - 1; i >= 0; i--) {
+    const layer = layers[i];
+    const a = layer.a !== undefined ? layer.a : 1;
+    finalColor = {
+      r: Math.round(layer.r * a + finalColor.r * (1 - a)),
+      g: Math.round(layer.g * a + finalColor.g * (1 - a)),
+      b: Math.round(layer.b * a + finalColor.b * (1 - a)),
+      a: 1
+    };
+  }
+  return finalColor;
 }
 
 // Compute relative luminance
@@ -174,8 +191,21 @@ export function extractElementStyles(element: HTMLElement): ElementStyles {
   const rect = element.getBoundingClientRect();
   const fontFamily = style.fontFamily;
   const fontFamilyChain = fontFamily.split(",").map(f => f.trim().replace(/['"]/g, ""));
-  const textColorRGB = parseColor(style.color);
+  
+  let textColorRGB = parseColor(style.color);
   const bgColorRGB = resolveBackgroundColor(element);
+
+  // Composite translucent text color over the resolved background
+  if (textColorRGB.a !== undefined && textColorRGB.a < 1) {
+    const a = textColorRGB.a;
+    textColorRGB = {
+      r: Math.round(textColorRGB.r * a + bgColorRGB.r * (1 - a)),
+      g: Math.round(textColorRGB.g * a + bgColorRGB.g * (1 - a)),
+      b: Math.round(textColorRGB.b * a + bgColorRGB.b * (1 - a)),
+      a: 1
+    };
+  }
+
   const contrastRatio = getContrastRatio(textColorRGB, bgColorRGB);
 
   const margin = getShorthand(style.marginTop, style.marginRight, style.marginBottom, style.marginLeft);
