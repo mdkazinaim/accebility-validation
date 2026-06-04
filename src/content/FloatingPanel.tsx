@@ -73,7 +73,7 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
   const [dominantPalette, setDominantPalette] = useState<string[]>([]);
 
   const normalizeToHex = (colorStr: string): string => {
-    if (!colorStr) return "#3B82F6";
+    if (!colorStr) return "";
     const clean = colorStr.trim();
     if (clean.startsWith("#") && (clean.length === 7 || clean.length === 4)) {
       return clean.toUpperCase();
@@ -256,32 +256,66 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
     const allElements = Array.from(document.querySelectorAll("*")) as HTMLElement[];
     const shadowHost = document.getElementById("accessibility-inspector-extension-root");
 
+    const isMatch = (colorStr: string): boolean => {
+      if (!colorStr || colorStr === "rgba(0, 0, 0, 0)" || colorStr === "transparent" || colorStr === "none") return false;
+      return normalizeToHex(colorStr) === targetHex;
+    };
+
     const matches = allElements.filter(el => {
       if (shadowHost && shadowHost.contains(el)) return false;
       if (el.offsetWidth === 0 && el.offsetHeight === 0) return false;
 
       try {
         const style = window.getComputedStyle(el);
-        
-        const isMatch = (colorStr: string) => {
-          if (!colorStr || colorStr === "rgba(0, 0, 0, 0)" || colorStr === "transparent" || colorStr === "none") return false;
-          return normalizeToHex(colorStr) === targetHex;
-        };
+        if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
 
-        const tagName = el.tagName.toLowerCase();
-        const hasSvgMatch = (tagName === "path" || tagName === "rect" || tagName === "circle" || tagName === "polygon" || tagName === "ellipse") &&
-          (isMatch(style.fill) || isMatch(style.stroke));
+        // Background color
+        if (isMatch(style.backgroundColor)) return true;
 
-        let hasDirectText = false;
-        for (let j = 0; j < el.childNodes.length; j++) {
-          if (el.childNodes[j].nodeType === Node.TEXT_NODE && el.childNodes[j].nodeValue?.trim()) {
-            hasDirectText = true;
-            break;
+        // Text color
+        if (isMatch(style.color)) return true;
+
+        // Border colors (all 4 sides)
+        if (isMatch(style.borderTopColor) || isMatch(style.borderRightColor) ||
+            isMatch(style.borderBottomColor) || isMatch(style.borderLeftColor)) return true;
+
+        // Outline color
+        if (isMatch(style.outlineColor)) return true;
+
+        // Text decoration color
+        if (isMatch(style.textDecorationColor)) return true;
+
+        // SVG fill & stroke
+        const tag = el.tagName.toLowerCase();
+        if (tag === "svg" || tag === "path" || tag === "rect" || tag === "circle" ||
+            tag === "polygon" || tag === "ellipse" || tag === "line" || tag === "polyline" ||
+            tag === "g" || tag === "use" || tag === "text" || tag === "tspan") {
+          if (isMatch(style.fill) || isMatch(style.stroke)) return true;
+        }
+
+        // Box-shadow colors
+        const shadow = style.boxShadow;
+        if (shadow && shadow !== "none") {
+          const rgbMatches = shadow.match(/rgba?\([^)]+\)/g);
+          if (rgbMatches) {
+            for (const m of rgbMatches) {
+              if (isMatch(m)) return true;
+            }
           }
         }
 
-        const hasTextColorMatch = hasDirectText && isMatch(style.color);
-        return isMatch(style.backgroundColor) || hasTextColorMatch || hasSvgMatch;
+        // Background-image gradient colors
+        const bgImage = style.backgroundImage;
+        if (bgImage && bgImage !== "none" && bgImage.includes("gradient")) {
+          const gradientColors = bgImage.match(/rgba?\([^)]+\)|#[0-9a-fA-F]{3,8}/g);
+          if (gradientColors) {
+            for (const gc of gradientColors) {
+              if (isMatch(gc)) return true;
+            }
+          }
+        }
+
+        return false;
       } catch {
         return false;
       }
@@ -411,11 +445,10 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
     }
   };
 
-  // Scan and Extract dominant palette from full DOM
+  // Scan and Extract every color from full DOM
   const handleExtractPalette = () => {
-    // Fallback to DOM scanning if screenshot fails
     const rawColors = scanPageColors();
-    const hexPalette = extractPalette(rawColors, 12);
+    const hexPalette = extractPalette(rawColors);
     const cleanPalette = hexPalette.filter(Boolean);
     setDominantPalette(cleanPalette);
     if (cleanPalette.length > 0) {
@@ -917,25 +950,34 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
 
             {/* Dominant Palette List */}
             <div>
-              <div className="text-[10px] text-slate-500 font-bold uppercase mb-2">Dominant Colors (K-Means Centroids)</div>
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-[10px] text-slate-500 font-bold uppercase">All Page Colors</div>
+                {dominantPalette.length > 0 && (
+                  <span className="text-[9px] font-mono text-slate-500 bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800">
+                    {dominantPalette.length} colors
+                  </span>
+                )}
+              </div>
               {dominantPalette.length > 0 ? (
-                <div className="grid grid-cols-4 gap-2">
-                  {dominantPalette.map((color, i) => (
-                    <div
-                      key={i}
-                      onClick={() => setSelectedColor(color)}
-                      className={`group relative rounded-xl border p-1 bg-slate-900 cursor-pointer transition-all flex flex-col items-center ${selectedColor === color ? "border-blue-500 ring-2 ring-blue-500/20" : "border-slate-800 hover:border-slate-700"
-                        }`}
-                    >
+                <div className="max-h-48 overflow-y-auto pr-1" style={{ scrollbarWidth: "thin", scrollbarColor: "#334155 transparent" }}>
+                  <div className="grid grid-cols-5 gap-1.5">
+                    {dominantPalette.map((color, i) => (
                       <div
-                        className="w-full aspect-square rounded-lg border border-slate-950"
-                        style={{ backgroundColor: color }}
-                      />
-                      <span className="text-[8px] font-mono mt-1 text-slate-400 truncate w-full text-center">
-                        {color}
-                      </span>
-                    </div>
-                  ))}
+                        key={i}
+                        onClick={() => setSelectedColor(selectedColor === color ? "" : color)}
+                        className={`group relative rounded-lg border p-0.5 bg-slate-900 cursor-pointer transition-all flex flex-col items-center ${selectedColor === color ? "border-blue-500 ring-2 ring-blue-500/20" : "border-slate-800 hover:border-slate-700"
+                          }`}
+                      >
+                        <div
+                          className="w-full aspect-square rounded-md border border-slate-950"
+                          style={{ backgroundColor: color }}
+                        />
+                        <span className="text-[7px] font-mono mt-0.5 text-slate-400 truncate w-full text-center">
+                          {color}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ) : (
                 <p className="text-xs text-slate-500">No page colors resolved. Try rescanning.</p>

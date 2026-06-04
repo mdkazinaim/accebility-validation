@@ -93,7 +93,7 @@ export const ContentApp: React.FC = () => {
   const [activeSelectedTextId, setActiveSelectedTextId] = useState<string | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [isEyedropperActive, setIsEyedropperActive] = useState(false);
-  const [selectedColor, setSelectedColorState] = useState<string>("#3B82F6");
+  const [selectedColor, setSelectedColorState] = useState<string>("");
   const [colorPickerHoveredElement, setColorPickerHoveredElement] = useState<HTMLElement | null>(null);
   const [colorPickerColorHex, setColorPickerColorHex] = useState<string | null>(null);
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
@@ -104,7 +104,7 @@ export const ContentApp: React.FC = () => {
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const normalizeToHex = (colorStr: string): string => {
-    if (!colorStr) return "#3B82F6";
+    if (!colorStr) return "";
     const clean = colorStr.trim();
     if (clean.startsWith("#") && (clean.length === 7 || clean.length === 4)) {
       return clean.toUpperCase();
@@ -227,14 +227,14 @@ export const ContentApp: React.FC = () => {
     setInspectorActive(false);
     setTextInspectorActive(false);
     setIsEyedropperActive(true); // Hide the floating panel instantly
-    
+
     // Wait for React to render the hidden state and browser to paint it
     setTimeout(() => {
       // Request a screenshot for the pixel magnifier
       chrome.runtime.sendMessage({ action: "capture-tab" }, (response) => {
         if (response && response.dataUrl) {
           setScreenshotDataUrl(response.dataUrl);
-          
+
           // Parse the image data to allow instant precise pixel color lookups
           const img = new window.Image();
           img.onload = () => {
@@ -275,7 +275,7 @@ export const ContentApp: React.FC = () => {
 
     const handleMouseMove = (e: MouseEvent) => {
       setCursorPos({ x: e.clientX, y: e.clientY });
-      
+
       const target = e.target as HTMLElement;
       if (!target) return;
 
@@ -293,22 +293,22 @@ export const ContentApp: React.FC = () => {
         // e.clientX/Y are relative to viewport, same as the screenshot canvas
         const x = Math.floor(e.clientX * scale);
         const y = Math.floor(e.clientY * scale);
-        
+
         const data = imageDataRef.current.data;
         const width = imageDataRef.current.width;
         const index = (y * width + x) * 4;
-        
+
         if (index >= 0 && index < data.length) {
           const r = data[index];
           const g = data[index + 1];
           const b = data[index + 2];
-          
+
           const hex = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`.toUpperCase();
           setColorPickerColorHex(hex);
         } else {
           setColorPickerColorHex(null);
         }
-        
+
         // Draw pixel-perfect preview
         if (sourceCanvasRef.current && previewCanvasRef.current) {
           const previewCtx = previewCanvasRef.current.getContext("2d");
@@ -316,12 +316,12 @@ export const ContentApp: React.FC = () => {
             previewCtx.imageSmoothingEnabled = false;
             // Clear canvas
             previewCtx.clearRect(0, 0, 120, 120);
-            
+
             // We want to sample a 15x15 region around the mouse and scale it to 120x120 (8x scale)
             const regionSize = 15;
             const srcX = x - regionSize / 2;
             const srcY = y - regionSize / 2;
-            
+
             previewCtx.drawImage(
               sourceCanvasRef.current,
               srcX, srcY, regionSize, regionSize,
@@ -367,7 +367,7 @@ export const ContentApp: React.FC = () => {
         setIsOpen(true);
         setFocusedTab("colors");
       }
-      
+
       setIsEyedropperActive(false);
       setColorPickerHoveredElement(null);
       setColorPickerColorHex(null);
@@ -386,8 +386,8 @@ export const ContentApp: React.FC = () => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const activeEl = document.activeElement;
       if (activeEl && (
-        activeEl.tagName === "INPUT" || 
-        activeEl.tagName === "TEXTAREA" || 
+        activeEl.tagName === "INPUT" ||
+        activeEl.tagName === "TEXTAREA" ||
         (activeEl as HTMLElement).isContentEditable
       )) {
         return;
@@ -602,13 +602,15 @@ export const ContentApp: React.FC = () => {
   };
 
   const MODE_CONFIG: Record<string, { bgColor: (styles: ReturnType<typeof extractElementStyles>) => string; getValue: (styles: ReturnType<typeof extractElementStyles>) => string }> = {
-    fontSize:   { bgColor: () => "#1e3a8a", getValue: s => s.fontSize },
+    fontSize: { bgColor: () => "#1e3a8a", getValue: s => s.fontSize },
     fontWeight: { bgColor: () => "#3730a3", getValue: s => s.fontWeight },
     fontFamily: { bgColor: () => "#4c1d95", getValue: s => { const v = s.fontFamilyChain[0] || s.fontFamily; return v.length > 15 ? v.substring(0, 12) + "..." : v; } },
-    contrast:   { bgColor: s => {
-      const isLargeText = parseFloat(s.fontSize) >= 24 || (parseFloat(s.fontSize) >= 18.6 && parseInt(s.fontWeight, 10) >= 700);
-      return (isLargeText ? s.contrastRatio >= 3.0 : s.contrastRatio >= 4.5) ? "#064e3b" : "#7f1d1d";
-    }, getValue: s => `${s.contrastRatio.toFixed(1)}:1` },
+    contrast: {
+      bgColor: s => {
+        const isLargeText = parseFloat(s.fontSize) >= 24 || (parseFloat(s.fontSize) >= 18.6 && parseInt(s.fontWeight, 10) >= 700);
+        return (isLargeText ? s.contrastRatio >= 3.0 : s.contrastRatio >= 4.5) ? "#064e3b" : "#7f1d1d";
+      }, getValue: s => `${s.contrastRatio.toFixed(1)}:1`
+    },
   };
 
   const scanFullPageTooltips = () => {
@@ -788,10 +790,10 @@ export const ContentApp: React.FC = () => {
 
       {/* Selected Element Outlines - Persistent if selection locked */}
       {lockedItems.map((item, idx) => (
-        <InspectorOverlay 
+        <InspectorOverlay
           key={`locked-${idx}-${item.element.tagName}`}
-          element={item.element} 
-          borderColor="#10b981" 
+          element={item.element}
+          borderColor="#10b981"
           backgroundColor="rgba(16, 185, 129, 0.04)"
           label={`selected: ${item.element.tagName.toLowerCase()}`}
           interactive={true}
@@ -801,10 +803,10 @@ export const ContentApp: React.FC = () => {
 
       {/* Hover Outline for Text Inspector */}
       {textInspectorActive && hoveredTextElement && (
-        <InspectorOverlay 
-          element={hoveredTextElement} 
-          borderColor="#3b82f6" 
-          backgroundColor="rgba(59, 130, 246, 0.05)" 
+        <InspectorOverlay
+          element={hoveredTextElement}
+          borderColor="#3b82f6"
+          backgroundColor="rgba(59, 130, 246, 0.05)"
           label="text element"
           showPopover={false}
         />
@@ -812,9 +814,9 @@ export const ContentApp: React.FC = () => {
 
       {/* DOM Color Picker Overlay */}
       {isEyedropperActive && colorPickerHoveredElement && (
-        <InspectorOverlay 
-          element={colorPickerHoveredElement} 
-          borderColor={colorPickerColorHex || "#ef4444"} 
+        <InspectorOverlay
+          element={colorPickerHoveredElement}
+          borderColor={colorPickerColorHex || "#ef4444"}
           backgroundColor="transparent"
           borderStyle="solid"
           label={colorPickerColorHex ? `Color: ${colorPickerColorHex}` : "Picking..."}
@@ -867,9 +869,9 @@ export const ContentApp: React.FC = () => {
             />
             {/* The center pixel indicator */}
             <div style={{ position: "relative", zIndex: 10, width: "8px", height: "8px", border: "1px solid white", boxShadow: "0 0 0 1px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(0,0,0,0.5)" }} />
-            
+
             {/* Eyedropper floating icon */}
-            <div 
+            <div
               className="absolute bg-slate-900 text-blue-400 rounded-full flex items-center justify-center shadow-xl border border-slate-700"
               style={{ width: "32px", height: "32px", bottom: "-4px", right: "-4px" }}
             >
@@ -995,9 +997,9 @@ export const ContentApp: React.FC = () => {
                     <X className="w-3.5 h-3.5" />
                   </button>
                 </div>
-                
+
                 <div className="grid grid-cols-2 gap-x-6 gap-y-2 font-mono text-[11px]">
-                  <div 
+                  <div
                     onClick={() => handleCopyField("fontFamily", activeItem.styles.fontFamily)}
                     className="flex justify-between border-b border-slate-900/50 py-1.5 px-1 hover:bg-slate-900/50 rounded cursor-pointer transition-colors group select-all"
                   >
@@ -1014,7 +1016,7 @@ export const ContentApp: React.FC = () => {
                     </div>
                   </div>
 
-                  <div 
+                  <div
                     onClick={() => handleCopyField("fontSize", activeItem.styles.fontSize)}
                     className="flex justify-between border-b border-slate-900/50 py-1.5 px-1 hover:bg-slate-900/50 rounded cursor-pointer transition-colors group select-all"
                   >
@@ -1031,7 +1033,7 @@ export const ContentApp: React.FC = () => {
                     </div>
                   </div>
 
-                  <div 
+                  <div
                     onClick={() => handleCopyField("fontWeight", activeItem.styles.fontWeight)}
                     className="flex justify-between border-b border-slate-900/50 py-1.5 px-1 hover:bg-slate-900/50 rounded cursor-pointer transition-colors group select-all"
                   >
@@ -1048,7 +1050,7 @@ export const ContentApp: React.FC = () => {
                     </div>
                   </div>
 
-                  <div 
+                  <div
                     onClick={() => handleCopyField("lineHeight", activeItem.styles.lineHeight)}
                     className="flex justify-between border-b border-slate-900/50 py-1.5 px-1 hover:bg-slate-900/50 rounded cursor-pointer transition-colors group select-all"
                   >
@@ -1065,7 +1067,7 @@ export const ContentApp: React.FC = () => {
                     </div>
                   </div>
 
-                  <div 
+                  <div
                     onClick={() => handleCopyField("color", activeItem.styles.color)}
                     className="flex justify-between border-b border-slate-900/50 py-1.5 px-1 hover:bg-slate-900/50 rounded cursor-pointer transition-colors group select-all"
                   >
@@ -1085,7 +1087,7 @@ export const ContentApp: React.FC = () => {
                     </div>
                   </div>
 
-                  <div 
+                  <div
                     onClick={() => handleCopyField("backgroundColor", activeItem.styles.backgroundColor)}
                     className="flex justify-between border-b border-slate-900/50 py-1.5 px-1 hover:bg-slate-900/50 rounded cursor-pointer transition-colors group select-all"
                   >
@@ -1105,7 +1107,7 @@ export const ContentApp: React.FC = () => {
                     </div>
                   </div>
 
-                  <div 
+                  <div
                     onClick={() => handleCopyField("contrast", activeItem.styles.contrastRatio.toFixed(1) + ":1")}
                     className="flex justify-between border-b border-slate-900/50 py-1.5 px-1 hover:bg-slate-900/50 rounded cursor-pointer transition-colors group select-all"
                   >
@@ -1122,7 +1124,7 @@ export const ContentApp: React.FC = () => {
                     </div>
                   </div>
 
-                  <div 
+                  <div
                     onClick={() => handleCopyField("textAlign", activeItem.styles.textAlign)}
                     className="flex justify-between border-b border-slate-900/50 py-1.5 px-1 hover:bg-slate-900/50 rounded cursor-pointer transition-colors group select-all"
                   >
@@ -1152,14 +1154,14 @@ export const ContentApp: React.FC = () => {
                 <div className="flex items-center gap-1.5 text-[10px] font-mono">
                   {(["fontSize", "fontWeight", "fontFamily", "contrast"] as const).map(mode => {
                     const label = mode === "fontSize" ? "Font Size"
-                                : mode === "fontWeight" ? "Font Weight"
-                                : mode === "fontFamily" ? "Font Family"
-                                : "Contrast";
+                      : mode === "fontWeight" ? "Font Weight"
+                        : mode === "fontFamily" ? "Font Family"
+                          : "Contrast";
                     const isActive = activeOverlayModes.has(mode);
                     const activeColor = mode === "fontSize" ? "bg-blue-600 border-blue-500"
-                                     : mode === "fontWeight" ? "bg-indigo-600 border-indigo-500"
-                                     : mode === "fontFamily" ? "bg-purple-600 border-purple-500"
-                                     : "bg-emerald-700 border-emerald-600";
+                      : mode === "fontWeight" ? "bg-indigo-600 border-indigo-500"
+                        : mode === "fontFamily" ? "bg-purple-600 border-purple-500"
+                          : "bg-emerald-700 border-emerald-600";
                     return (
                       <button
                         key={mode}
@@ -1171,11 +1173,10 @@ export const ContentApp: React.FC = () => {
                             return next;
                           });
                         }}
-                        className={`px-2 py-1 rounded-md border cursor-pointer transition-all ${
-                          isActive
+                        className={`px-2 py-1 rounded-md border cursor-pointer transition-all ${isActive
                             ? `${activeColor} text-white shadow-sm font-semibold`
                             : "bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700"
-                        }`}
+                          }`}
                       >
                         {label}
                       </button>
@@ -1210,11 +1211,10 @@ export const ContentApp: React.FC = () => {
                     <div
                       key={item.id}
                       onClick={() => setActiveSelectedTextId(item.id === activeSelectedTextId ? null : item.id)}
-                      className={`flex items-center gap-1 px-2 py-0.5 rounded-md text-[9px] font-mono border cursor-pointer transition-all ${
-                        item.id === activeSelectedTextId
+                      className={`flex items-center gap-1 px-2 py-0.5 rounded-md text-[9px] font-mono border cursor-pointer transition-all ${item.id === activeSelectedTextId
                           ? "bg-blue-600/25 border-blue-500 text-blue-300"
                           : "bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-750"
-                      }`}
+                        }`}
                     >
                       <span className="truncate max-w-[70px]">{item.textContent}</span>
                       <button
@@ -1246,11 +1246,10 @@ export const ContentApp: React.FC = () => {
                   setInspectorActive(!inspectorActive);
                   setTextInspectorActive(false);
                 }}
-                className={`flex flex-col items-center justify-center w-9 h-9 rounded-md cursor-pointer transition-all ${
-                  inspectorActive
+                className={`flex flex-col items-center justify-center w-9 h-9 rounded-md cursor-pointer transition-all ${inspectorActive
                     ? "bg-blue-600 text-white shadow-md"
                     : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
-                }`}
+                  }`}
                 title="Hover Inspector (Key: M)"
               >
                 <MousePointer className="w-3.5 h-3.5" />
@@ -1275,11 +1274,10 @@ export const ContentApp: React.FC = () => {
                   setTextInspectorActive(!textInspectorActive);
                   setInspectorActive(false);
                 }}
-                className={`flex flex-col items-center justify-center w-9 h-9 rounded-md cursor-pointer transition-all ${
-                  textInspectorActive
+                className={`flex flex-col items-center justify-center w-9 h-9 rounded-md cursor-pointer transition-all ${textInspectorActive
                     ? "bg-blue-600 text-white shadow-md"
                     : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
-                }`}
+                  }`}
                 title="Text Inspector (Key: T)"
               >
                 <Type className="w-3.5 h-3.5" />
@@ -1295,11 +1293,10 @@ export const ContentApp: React.FC = () => {
                   setFocusedTab("inspect");
                   setIsOpen(true);
                 }}
-                className={`flex flex-col items-center justify-center w-9 h-9 rounded-md cursor-pointer transition-all ${
-                  isOpen && focusedTab === "inspect"
+                className={`flex flex-col items-center justify-center w-9 h-9 rounded-md cursor-pointer transition-all ${isOpen && focusedTab === "inspect"
                     ? "bg-slate-800 text-blue-400 border border-slate-700"
                     : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
-                }`}
+                  }`}
                 title="Inspect Elements (Key: I)"
               >
                 <Search className="w-3.5 h-3.5" />
@@ -1312,11 +1309,10 @@ export const ContentApp: React.FC = () => {
                   setFocusedTab("colors");
                   setIsOpen(true);
                 }}
-                className={`flex flex-col items-center justify-center w-9 h-9 rounded-md cursor-pointer transition-all ${
-                  isOpen && focusedTab === "colors"
+                className={`flex flex-col items-center justify-center w-9 h-9 rounded-md cursor-pointer transition-all ${isOpen && focusedTab === "colors"
                     ? "bg-slate-800 text-blue-400 border border-slate-700"
                     : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
-                }`}
+                  }`}
                 title="Color Analyzer (Key: C)"
               >
                 <Palette className="w-3.5 h-3.5" />
@@ -1329,11 +1325,10 @@ export const ContentApp: React.FC = () => {
                   setFocusedTab("fonts");
                   setIsOpen(true);
                 }}
-                className={`flex flex-col items-center justify-center w-9 h-9 rounded-md cursor-pointer transition-all ${
-                  isOpen && focusedTab === "fonts"
+                className={`flex flex-col items-center justify-center w-9 h-9 rounded-md cursor-pointer transition-all ${isOpen && focusedTab === "fonts"
                     ? "bg-slate-800 text-blue-400 border border-slate-700"
                     : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
-                }`}
+                  }`}
                 title="Typography Analyzer (Key: F)"
               >
                 <Type className="w-3.5 h-3.5" />
@@ -1346,11 +1341,10 @@ export const ContentApp: React.FC = () => {
                   setFocusedTab("images");
                   setIsOpen(true);
                 }}
-                className={`flex flex-col items-center justify-center w-9 h-9 rounded-md cursor-pointer transition-all ${
-                  isOpen && focusedTab === "images"
+                className={`flex flex-col items-center justify-center w-9 h-9 rounded-md cursor-pointer transition-all ${isOpen && focusedTab === "images"
                     ? "bg-slate-800 text-blue-400 border border-slate-700"
                     : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
-                }`}
+                  }`}
                 title="Image Analyzer (Key: G)"
               >
                 <ImageIcon className="w-3.5 h-3.5" />
@@ -1363,11 +1357,10 @@ export const ContentApp: React.FC = () => {
               {/* Toggle Sidebar */}
               <button
                 onClick={() => setIsOpen(!isOpen)}
-                className={`flex flex-col items-center justify-center w-9 h-9 rounded-md cursor-pointer transition-all ${
-                  isOpen
+                className={`flex flex-col items-center justify-center w-9 h-9 rounded-md cursor-pointer transition-all ${isOpen
                     ? "bg-blue-600 text-white shadow-md"
                     : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
-                }`}
+                  }`}
                 title="Toggle Sidebar (Key: V)"
               >
                 <Layout className="w-3.5 h-3.5" />

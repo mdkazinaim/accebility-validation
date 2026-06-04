@@ -60,137 +60,138 @@ export function hslToHex(h: number, s: number, l: number): string {
   return `#${f(0)}${f(8)}${f(4)}`;
 }
 
-// Extract dominant colors using Frequency + Minimum Distance grouping
-// This perfectly captures distinct UI colors (like pastels and accents) without muddying them
-export function extractPalette(colors: RGB[], k = 12): string[] {
+// Extract ALL unique colors from the page, sorted by frequency (most used first).
+// No clustering, no merging, no distance thresholds. Every distinct hex is returned.
+export function extractPalette(colors: RGB[], _k = 100): string[] {
   if (colors.length === 0) {
-    return ["#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899", "#111827", "#F3F4F6"];
+    return [];
   }
 
-  // 1. Count exact frequencies of each Hex Color
-  const frequencyMap = new Map<string, { rgb: RGB, count: number }>();
+  // Count exact frequencies of each hex color
+  const frequencyMap = new Map<string, number>();
   for (const c of colors) {
-    const hex = rgbToHex(c);
-    if (frequencyMap.has(hex)) {
-      frequencyMap.get(hex)!.count++;
-    } else {
-      frequencyMap.set(hex, { rgb: c, count: 1 });
-    }
+    const hex = rgbToHex(c).toUpperCase();
+    frequencyMap.set(hex, (frequencyMap.get(hex) || 0) + 1);
   }
 
-  // 2. Sort colors by frequency (most used first)
-  const sortedUniqueColors = Array.from(frequencyMap.values()).sort((a, b) => b.count - a.count);
-
-  const palette: string[] = [];
-  const paletteRgb: RGB[] = [];
-
-  // Minimum squared Euclidean distance to be considered a "distinct" color.
-  // sqrt(1000) is approx 31 RGB units. This allows pastels (Light Green) to be distinct from White,
-  // but merges highly similar shades of dark gray.
-  const DISTANCE_THRESHOLD = 1000;
-
-  // 3. Iterate and build the palette
-  for (const item of sortedUniqueColors) {
-    if (palette.length >= k) break;
-
-    const { rgb } = item;
-    const hex = rgbToHex(rgb);
-    
-    // Check if this color is too similar to any color already in the palette
-    let isDistinct = true;
-    for (const existingRgb of paletteRgb) {
-      const dist = Math.pow(rgb.r - existingRgb.r, 2) + Math.pow(rgb.g - existingRgb.g, 2) + Math.pow(rgb.b - existingRgb.b, 2);
-      if (dist < DISTANCE_THRESHOLD) {
-        isDistinct = false;
-        break;
-      }
-    }
-
-    if (isDistinct) {
-      palette.push(hex);
-      paletteRgb.push(rgb);
-    }
-  }
-
-  return palette;
+  // Sort by frequency (most used first) and return every unique color
+  const sorted = Array.from(frequencyMap.entries()).sort((a, b) => b[1] - a[1]);
+  return sorted.map(([hex]) => hex);
 }
 
-// Scan webpage elements for colors
+// Helper: parse a CSS color string to hex, returns null if transparent/invalid
+function cssToHex(raw: string): string | null {
+  if (!raw || raw === "rgba(0, 0, 0, 0)" || raw === "transparent" || raw === "none") return null;
+  const parsed = parseColor(raw);
+  if (!parsed || isNaN(parsed.r) || (parsed.a ?? 1) <= 0.05) return null;
+  return rgbToHex(parsed).toUpperCase();
+}
+
+// Scan the ENTIRE page DOM for every color used on every VISIBLE element.
+// Only includes elements that are actually rendered (non-zero dimensions, not hidden).
+// Reads: backgroundColor, color, borderColor (all 4 sides), outlineColor, SVG fill & stroke,
+// boxShadow colors, backgroundImage gradient colors, textDecorationColor, caretColor, accentColor.
+// Returns one RGB entry per element-property occurrence for accurate frequency counting.
 export function scanPageColors(): RGB[] {
-  const colors: RGB[] = [];
-  // Ignore scripts, styles, and the extension's own container elements
-  const selector = "body *:not(script):not(style):not(#accessibility-inspector-extension-root):not(#accessibility-inspector-extension-root *)";
-  const elements = Array.from(document.querySelectorAll(selector));
-  
-  // Sample up to 3000 elements for higher accuracy while preserving excellent performance
-  let sampledElements = elements;
-  if (elements.length > 3000) {
-    const step = Math.floor(elements.length / 3000);
-    sampledElements = [];
-    for (let i = 0; i < elements.length; i += step) {
-      sampledElements.push(elements[i]);
-    }
-  }
+  const results: RGB[] = [];
 
-  for (const el of sampledElements) {
-    const htmlEl = el as HTMLElement;
-    if (htmlEl.nodeType !== Node.ELEMENT_NODE) continue;
-    
+  // Ignore our own extension root and its descendants
+  const selector = "body *:not(script):not(style):not(link):not(meta):not(head):not(#accessibility-inspector-extension-root):not(#accessibility-inspector-extension-root *)";
+  const elements = document.querySelectorAll(selector);
+
+  // Track which hex values we've already added, so we push one RGB per unique hex per element
+  // (prevents duplicates from the same element, but counts across elements for frequency)
+  const addHex = (hex: string) => {
+    const parsed = hexToRgb(hex);
+    results.push(parsed);
+  };
+
+  for (let i = 0; i < elements.length; i++) {
+    const el = elements[i] as HTMLElement;
+    if (el.nodeType !== Node.ELEMENT_NODE) continue;
+
+    // Skip invisible elements — these produce phantom colors
     try {
-      const style = window.getComputedStyle(htmlEl);
-      
-      // 1. Background colors
-      const bg = style.backgroundColor;
-      if (bg && bg !== "rgba(0, 0, 0, 0)" && bg !== "transparent") {
-        const parsedBg = parseColor(bg);
-        if (parsedBg && parsedBg.a !== 0 && !isNaN(parsedBg.r)) {
-          colors.push(parsedBg);
-        }
+      if (el.offsetWidth === 0 && el.offsetHeight === 0) continue;
+      const cs = window.getComputedStyle(el);
+      if (cs.display === "none" || cs.visibility === "hidden" || cs.opacity === "0") continue;
+    } catch {
+      continue;
+    }
+
+    // Collect all hex values from this element, deduped within the element
+    const elementHexes = new Set<string>();
+
+    try {
+      const style = window.getComputedStyle(el);
+
+      // Background color
+      const bgHex = cssToHex(style.backgroundColor);
+      if (bgHex) elementHexes.add(bgHex);
+
+      // Text color
+      const colorHex = cssToHex(style.color);
+      if (colorHex) elementHexes.add(colorHex);
+
+      // Border colors (each side can differ)
+      for (const side of [style.borderTopColor, style.borderRightColor, style.borderBottomColor, style.borderLeftColor]) {
+        const h = cssToHex(side);
+        if (h) elementHexes.add(h);
       }
-      
-      // 2. Text colors (only if element has direct text content, avoiding redundant inherits)
-      let hasDirectText = false;
-      for (let j = 0; j < htmlEl.childNodes.length; j++) {
-        if (htmlEl.childNodes[j].nodeType === Node.TEXT_NODE && htmlEl.childNodes[j].nodeValue?.trim()) {
-          hasDirectText = true;
-          break;
-        }
+
+      // Outline color
+      const outHex = cssToHex(style.outlineColor);
+      if (outHex) elementHexes.add(outHex);
+
+      // Text decoration color
+      const tdcHex = cssToHex(style.textDecorationColor);
+      if (tdcHex) elementHexes.add(tdcHex);
+
+      // SVG fill & stroke (broad tag coverage)
+      const tag = el.tagName.toLowerCase();
+      if (tag === "svg" || tag === "path" || tag === "rect" || tag === "circle" ||
+          tag === "polygon" || tag === "ellipse" || tag === "line" || tag === "polyline" ||
+          tag === "g" || tag === "use" || tag === "text" || tag === "tspan") {
+        const fillHex = cssToHex(style.fill);
+        if (fillHex) elementHexes.add(fillHex);
+        const strokeHex = cssToHex(style.stroke);
+        if (strokeHex) elementHexes.add(strokeHex);
       }
-      
-      if (hasDirectText) {
-        const fg = style.color;
-        if (fg && fg !== "rgba(0, 0, 0, 0)" && fg !== "transparent") {
-          const parsedFg = parseColor(fg);
-          if (parsedFg && parsedFg.a !== 0 && !isNaN(parsedFg.r)) {
-            colors.push(parsedFg);
+
+      // Box-shadow colors
+      const shadow = style.boxShadow;
+      if (shadow && shadow !== "none") {
+        const rgbMatches = shadow.match(/rgba?\([^)]+\)/g);
+        if (rgbMatches) {
+          for (const m of rgbMatches) {
+            const h = cssToHex(m);
+            if (h) elementHexes.add(h);
           }
         }
       }
 
-      // 3. SVG colors (fill & stroke)
-      const tagName = htmlEl.tagName.toLowerCase();
-      if (tagName === "path" || tagName === "rect" || tagName === "circle" || tagName === "polygon" || tagName === "ellipse") {
-        const fill = style.fill;
-        if (fill && fill !== "none" && fill !== "rgba(0, 0, 0, 0)" && fill !== "transparent") {
-          const parsedFill = parseColor(fill);
-          if (parsedFill && parsedFill.a !== 0 && !isNaN(parsedFill.r)) {
-            colors.push(parsedFill);
-          }
-        }
-        
-        const stroke = style.stroke;
-        if (stroke && stroke !== "none" && stroke !== "rgba(0, 0, 0, 0)" && stroke !== "transparent") {
-          const parsedStroke = parseColor(stroke);
-          if (parsedStroke && parsedStroke.a !== 0 && !isNaN(parsedStroke.r)) {
-            colors.push(parsedStroke);
+      // Background-image gradient colors
+      const bgImage = style.backgroundImage;
+      if (bgImage && bgImage !== "none" && bgImage.includes("gradient")) {
+        const gradientColors = bgImage.match(/rgba?\([^)]+\)|#[0-9a-fA-F]{3,8}/g);
+        if (gradientColors) {
+          for (const gc of gradientColors) {
+            const h = cssToHex(gc);
+            if (h) elementHexes.add(h);
           }
         }
       }
     } catch {
-      // ignore style reading exceptions
+      // Ignore unreadable elements
+    }
+
+    // Push one entry per unique color from this element
+    for (const hex of elementHexes) {
+      addHex(hex);
     }
   }
-  return colors;
+
+  return results;
 }
 
 // Generate color schemes/harmonies
