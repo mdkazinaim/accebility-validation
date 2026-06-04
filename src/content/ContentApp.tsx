@@ -530,6 +530,7 @@ export const ContentApp: React.FC = () => {
           borderColor="#3b82f6" 
           backgroundColor="rgba(59, 130, 246, 0.05)" 
           label="text element"
+          showPopover={false}
         />
       )}
 
@@ -543,6 +544,7 @@ export const ContentApp: React.FC = () => {
           backgroundColor="rgba(59, 130, 246, 0.02)"
           label={`selected text: ${item.textContent}`}
           interactive={true}
+          showPopover={false}
           onClose={() => {
             setSelectedTextElements(prev => prev.filter(x => x.id !== item.id));
             if (activeSelectedTextId === item.id) {
@@ -609,7 +611,7 @@ export const ContentApp: React.FC = () => {
       )}
 
       {isMenuOpen && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100000] flex flex-col items-center gap-2 pointer-events-none select-none">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[2000000] flex flex-col items-center gap-2 pointer-events-none select-none">
           {/* Detailed Properties Card */}
           {textInspectorActive && (() => {
             const activeItem = selectedTextElements.find(item => item.id === activeSelectedTextId);

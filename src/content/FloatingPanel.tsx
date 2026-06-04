@@ -498,7 +498,7 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
           alignItems: "center",
           justifyContent: "center"
         }}
-        className={`fixed z-[100000] bg-slate-950/95 text-white shadow-2xl hover:bg-slate-900 border border-slate-800 cursor-grab active:cursor-grabbing group ${
+        className={`fixed z-[2000000] bg-slate-950/95 text-white shadow-2xl hover:bg-slate-900 border border-slate-800 cursor-grab active:cursor-grabbing group ${
           dockEdge === "left"
             ? "rounded-r-2xl border-l-0"
             : "rounded-l-2xl border-r-0"
@@ -519,7 +519,7 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
           opacity: isMinimized ? 0 : 1,
           pointerEvents: isMinimized ? "none" : "auto",
         }}
-        className="fixed w-96 bg-slate-950/95 backdrop-blur-md text-slate-100 rounded-2xl border border-slate-800 shadow-2xl z-[100000] flex flex-col overflow-hidden font-sans"
+        className="fixed w-96 bg-slate-950/95 backdrop-blur-md text-slate-100 rounded-2xl border border-slate-800 shadow-2xl z-[2000000] flex flex-col overflow-hidden font-sans"
       >
 
       {/* Header Panel */}

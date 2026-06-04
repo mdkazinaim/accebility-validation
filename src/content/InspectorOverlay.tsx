@@ -9,6 +9,7 @@ interface InspectorOverlayProps {
   backgroundColor?: string;
   interactive?: boolean; // Added to enable interactions when selection is locked
   onClose?: () => void;  // Callback to close/clear lock state
+  showPopover?: boolean; // Controls whether to show the hover popover
 }
 
 // Fallback clipboard copying method using document.execCommand
@@ -108,7 +109,8 @@ export const InspectorOverlay: React.FC<InspectorOverlayProps> = ({
   borderStyle = "solid",
   backgroundColor = "rgba(59, 130, 246, 0.05)",
   interactive = false,
-  onClose
+  onClose,
+  showPopover = true
 }) => {
   const rect = element.getBoundingClientRect();
   const scrollY = window.scrollY;
@@ -235,7 +237,7 @@ export const InspectorOverlay: React.FC<InspectorOverlayProps> = ({
       `}} />
 
       {/* Styled Popover tooltip */}
-      {styles && (
+      {showPopover && styles && (
         <div style={popoverStyle}>
           {/* Header Row */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #1C2B3C", paddingBottom: "8px", marginBottom: "12px" }}>
