@@ -24,6 +24,22 @@ function initExtensionOverlay() {
     :host {
       all: initial;
     }
+    #accessibility-react-root {
+      --spacing: 4px !important;
+      --text-xs: 12px !important;
+      --text-sm: 14px !important;
+      --text-base: 16px !important;
+      --text-lg: 18px !important;
+      --text-xl: 20px !important;
+      --text-2xl: 24px !important;
+      --text-3xl: 30px !important;
+      --text-4xl: 36px !important;
+      --radius-sm: 4px !important;
+      --radius-md: 6px !important;
+      --radius-lg: 8px !important;
+      --radius-xl: 12px !important;
+      --radius-2xl: 16px !important;
+    }
   `;
   shadowRoot.appendChild(styles);
 
