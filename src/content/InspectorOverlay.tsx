@@ -138,20 +138,82 @@ export const InspectorOverlay: React.FC<InspectorOverlayProps> = ({
     boxSizing: "border-box",
   };
 
-  // Position of popover (placed below if room, else above)
-  const popoverHeight = 320; // new height based on expanded layout
-  const spaceBelow = window.innerHeight - rect.bottom;
-  const showAbove = spaceBelow < popoverHeight + 20 && rect.top > popoverHeight + 20;
-  
-  const popoverTop = showAbove 
-    ? rect.top + scrollY - popoverHeight - 8 
-    : rect.bottom + scrollY + 8;
+  // Position of popover (placed to the side if room, else above/below)
+  const popoverWidth = 280;
+  const popoverHeight = 320;
+  const margin = 12;
+
+  const spaceRight = window.innerWidth - rect.right;
+  const spaceLeft = rect.left;
+
+  let popoverLeft = rect.left;
+  let popoverTop = rect.bottom;
+  let placement: "right" | "left" | "below" | "above" = "below";
+
+  if (spaceRight >= popoverWidth + 24) {
+    // Position to the right of the element
+    popoverLeft = rect.right + margin;
+    popoverTop = rect.top;
+    placement = "right";
+  } else if (spaceLeft >= popoverWidth + 24) {
+    // Position to the left of the element
+    popoverLeft = rect.left - popoverWidth - margin;
+    popoverTop = rect.top;
+    placement = "left";
+  } else {
+    // Fallback to above/below
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const showAbove = spaceBelow < popoverHeight + 20 && rect.top > popoverHeight + 20;
+    popoverLeft = rect.left;
+    popoverTop = showAbove 
+      ? rect.top - popoverHeight - margin 
+      : rect.bottom + margin;
+    placement = showAbove ? "above" : "below";
+  }
+
+  // Horizontal bounds constraint
+  if (popoverLeft + popoverWidth > window.innerWidth - 16) {
+    popoverLeft = window.innerWidth - popoverWidth - 16;
+  }
+  if (popoverLeft < 16) {
+    popoverLeft = 16;
+  }
+  const finalLeft = popoverLeft + scrollX;
+
+  // Vertical bounds constraint
+  if (placement === "right" || placement === "left") {
+    if (popoverTop + popoverHeight > window.innerHeight - 16) {
+      popoverTop = window.innerHeight - popoverHeight - 16;
+    }
+    if (popoverTop < 16) {
+      popoverTop = 16;
+    }
+  } else {
+    if (placement === "below") {
+      if (popoverTop + popoverHeight > window.innerHeight - 16) {
+        if (rect.top > popoverHeight + 20) {
+          popoverTop = rect.top - popoverHeight - margin;
+        } else {
+          popoverTop = window.innerHeight - popoverHeight - 16;
+        }
+      }
+    } else { // above
+      if (popoverTop < 16) {
+        if (window.innerHeight - rect.bottom > popoverHeight + 20) {
+          popoverTop = rect.bottom + margin;
+        } else {
+          popoverTop = 16;
+        }
+      }
+    }
+  }
+  const finalTop = popoverTop + scrollY;
 
   const popoverStyle: React.CSSProperties = {
     position: "absolute",
-    top: popoverTop,
-    left: rect.left + scrollX,
-    width: "280px",
+    top: finalTop,
+    left: finalLeft,
+    width: `${popoverWidth}px`,
     backgroundColor: "#0B1329", // Deep Navy/Slate background
     color: "#E2E8F0",
     borderRadius: "8px",
