@@ -5,6 +5,7 @@ interface InspectorOverlayProps {
   element: HTMLElement;
   label?: string;
   borderColor?: string;
+  borderStyle?: string;
   backgroundColor?: string;
   interactive?: boolean; // Added to enable interactions when selection is locked
   onClose?: () => void;  // Callback to close/clear lock state
@@ -104,6 +105,7 @@ export const InspectorOverlay: React.FC<InspectorOverlayProps> = ({
   element,
   label,
   borderColor = "#3b82f6",
+  borderStyle = "solid",
   backgroundColor = "rgba(59, 130, 246, 0.05)",
   interactive = false,
   onClose
@@ -127,7 +129,7 @@ export const InspectorOverlay: React.FC<InspectorOverlayProps> = ({
     left: rect.left + scrollX,
     width: rect.width,
     height: rect.height,
-    border: `2px dashed ${borderColor}`,
+    border: `2px ${borderStyle} ${borderColor}`,
     backgroundColor: backgroundColor,
     pointerEvents: "none",
     zIndex: 999999,

@@ -10,8 +10,22 @@ import {
   Search,
   Layout,
   Power,
-  Pipette
+  Pipette,
+  X
 } from "lucide-react";
+
+const isTextElement = (el: HTMLElement): boolean => {
+  const shadowHost = document.getElementById("accessibility-inspector-extension-root");
+  if (shadowHost && shadowHost.contains(el)) return false;
+
+  for (let i = 0; i < el.childNodes.length; i++) {
+    const node = el.childNodes[i];
+    if (node.nodeType === 3 && node.textContent && node.textContent.trim().length > 0) {
+      return true;
+    }
+  }
+  return false;
+};
 
 export const ContentApp: React.FC = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -21,13 +35,22 @@ export const ContentApp: React.FC = () => {
   const [lockedItems, setLockedItems] = useState<{ element: HTMLElement; styles: ElementStyles }[]>([]);
   const [focusedTab, setFocusedTab] = useState<"inspect" | "colors" | "fonts" | "images">("inspect");
   const [showContrastTooltips, setShowContrastTooltips] = useState(false);
-  const [contrastTooltips, setContrastTooltips] = useState<{
+  const [fullPageOverlayMode, setFullPageOverlayMode] = useState<"fontSize" | "fontWeight" | "fontFamily" | "contrast" | null>(null);
+  const [fullPageTooltips, setFullPageTooltips] = useState<{
     id: string;
     top: number;
     left: number;
-    contrastRatio: number;
-    isPassed: boolean;
+    value: string;
+    bgColor: string;
+    textColor: string;
   }[]>([]);
+
+  // Text Inspector States
+  const [textInspectorActive, setTextInspectorActive] = useState(false);
+  const [hoveredTextElement, setHoveredTextElement] = useState<HTMLElement | null>(null);
+  const [hoveredTextStyles, setHoveredTextStyles] = useState<ElementStyles | null>(null);
+  const [selectedTextElements, setSelectedTextElements] = useState<{ id: string; element: HTMLElement; styles: ElementStyles; textContent: string }[]>([]);
+  const [activeSelectedTextId, setActiveSelectedTextId] = useState<string | null>(null);
 
   // Sync state and respond to messages from popup or background scripts
   useEffect(() => {
@@ -46,7 +69,9 @@ export const ContentApp: React.FC = () => {
         if (!next) {
           setIsOpen(false);
           setInspectorActive(false);
+          setTextInspectorActive(false);
           setShowContrastTooltips(false);
+          setFullPageOverlayMode(null);
         }
         sendResponse({ isMenuOpen: next });
       } else if (action === "toggle-inspector") {
@@ -127,12 +152,41 @@ export const ContentApp: React.FC = () => {
       if (key === "m") {
         e.preventDefault();
         setInspectorActive(prev => !prev);
+        setTextInspectorActive(false);
       } else if (key === "e") {
         e.preventDefault();
         triggerNativeEyeDropper();
+      } else if (key === "t") {
+        e.preventDefault();
+        setTextInspectorActive(prev => !prev);
+        setInspectorActive(false);
+      } else if (key === "i") {
+        e.preventDefault();
+        setFocusedTab("inspect");
+        setIsOpen(true);
+      } else if (key === "c") {
+        e.preventDefault();
+        setFocusedTab("colors");
+        setIsOpen(true);
+      } else if (key === "f") {
+        e.preventDefault();
+        setFocusedTab("fonts");
+        setIsOpen(true);
+      } else if (key === "g") {
+        e.preventDefault();
+        setFocusedTab("images");
+        setIsOpen(true);
       } else if (key === "v") {
         e.preventDefault();
         setIsOpen(prev => !prev);
+      } else if (key === "q") {
+        e.preventDefault();
+        setIsMenuOpen(false);
+        setIsOpen(false);
+        setInspectorActive(false);
+        setTextInspectorActive(false);
+        setShowContrastTooltips(false);
+        setFullPageOverlayMode(null);
       }
     };
 
@@ -141,6 +195,86 @@ export const ContentApp: React.FC = () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [isMenuOpen]);
+
+  // Hover handler for Text Inspector
+  useEffect(() => {
+    if (!textInspectorActive) {
+      setHoveredTextElement(null);
+      setHoveredTextStyles(null);
+      return;
+    }
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target) return;
+
+      if (isTextElement(target)) {
+        setHoveredTextElement(target);
+        try {
+          const styles = extractElementStyles(target);
+          setHoveredTextStyles(styles);
+        } catch {
+          setHoveredTextStyles(null);
+        }
+      } else {
+        setHoveredTextElement(null);
+        setHoveredTextStyles(null);
+      }
+    };
+
+    const handleMouseLeave = () => {
+      setHoveredTextElement(null);
+      setHoveredTextStyles(null);
+    };
+
+    document.addEventListener("mousemove", handleMouseMove, { passive: true });
+    document.addEventListener("mouseleave", handleMouseLeave);
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseleave", handleMouseLeave);
+    };
+  }, [textInspectorActive]);
+
+  // Click handler for Text Inspector (select multiple elements)
+  useEffect(() => {
+    if (!textInspectorActive) return;
+
+    const handleTextClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target) return;
+
+      const shadowHost = document.getElementById("accessibility-inspector-extension-root");
+      if (shadowHost && shadowHost.contains(target)) return;
+
+      if (isTextElement(target)) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const alreadySelected = selectedTextElements.some(item => item.element === target);
+        if (!alreadySelected) {
+          try {
+            const styles = extractElementStyles(target);
+            const textContent = target.textContent?.trim().slice(0, 20) || "Text Element";
+            const id = `text-el-${Date.now()}`;
+            setSelectedTextElements(prev => [...prev, { id, element: target, styles, textContent }]);
+            setActiveSelectedTextId(id);
+          } catch (err) {
+            console.warn("Failed style extraction on text click:", err);
+          }
+        } else {
+          const item = selectedTextElements.find(item => item.element === target);
+          if (item) {
+            setActiveSelectedTextId(item.id);
+          }
+        }
+      }
+    };
+
+    document.addEventListener("click", handleTextClick, true);
+    return () => {
+      document.removeEventListener("click", handleTextClick, true);
+    };
+  }, [textInspectorActive, selectedTextElements]);
 
   // Document hover handler (works even if sidebar is closed)
   useEffect(() => {
@@ -222,7 +356,12 @@ export const ContentApp: React.FC = () => {
     setLockedItems(prev => prev.filter(item => item.element !== element));
   };
 
-  const scanContrastTooltips = () => {
+  const scanFullPageTooltips = () => {
+    if (!fullPageOverlayMode) {
+      setFullPageTooltips([]);
+      return;
+    }
+
     const allElements = Array.from(document.querySelectorAll("*")) as HTMLElement[];
     const shadowHost = document.getElementById("accessibility-inspector-extension-root");
 
@@ -230,8 +369,9 @@ export const ContentApp: React.FC = () => {
       id: string;
       top: number;
       left: number;
-      contrastRatio: number;
-      isPassed: boolean;
+      value: string;
+      bgColor: string;
+      textColor: string;
     }[] = [];
 
     const scrollTop = window.scrollY;
@@ -257,16 +397,35 @@ export const ContentApp: React.FC = () => {
           if (rect.width < 2 || rect.height < 2) return;
 
           const styles = extractElementStyles(el);
-          const isLargeText = parseFloat(styles.fontSize) >= 24 || 
-            (parseFloat(styles.fontSize) >= 18.6 && parseInt(styles.fontWeight, 10) >= 700);
-          const isPassed = isLargeText ? styles.contrastRatio >= 3.0 : styles.contrastRatio >= 4.5;
+          let value = "";
+          let bgColor = "#0f172a"; // default slate-900
+          let textColor = "#f8fafc"; // default slate-50
+
+          if (fullPageOverlayMode === "fontSize") {
+            value = styles.fontSize;
+            bgColor = "#1e3a8a"; // Blue-900
+          } else if (fullPageOverlayMode === "fontWeight") {
+            value = styles.fontWeight;
+            bgColor = "#3730a3"; // Indigo-800
+          } else if (fullPageOverlayMode === "fontFamily") {
+            value = styles.fontFamilyChain[0] || styles.fontFamily;
+            if (value.length > 15) value = value.substring(0, 12) + "...";
+            bgColor = "#4c1d95"; // Purple-900
+          } else if (fullPageOverlayMode === "contrast") {
+            value = `${styles.contrastRatio.toFixed(1)}:1`;
+            const isLargeText = parseFloat(styles.fontSize) >= 24 || 
+              (parseFloat(styles.fontSize) >= 18.6 && parseInt(styles.fontWeight, 10) >= 700);
+            const isPassed = isLargeText ? styles.contrastRatio >= 3.0 : styles.contrastRatio >= 4.5;
+            bgColor = isPassed ? "#064e3b" : "#7f1d1d"; // Green-900 or Red-900
+          }
 
           tooltips.push({
-            id: `contrast-tooltip-${idx}`,
+            id: `fp-tooltip-${idx}`,
             top: rect.top + scrollTop,
             left: rect.left + scrollLeft,
-            contrastRatio: styles.contrastRatio,
-            isPassed
+            value,
+            bgColor,
+            textColor
           });
         } catch {
           // ignore
@@ -274,22 +433,22 @@ export const ContentApp: React.FC = () => {
       }
     });
 
-    setContrastTooltips(tooltips);
+    setFullPageTooltips(tooltips);
   };
 
   useEffect(() => {
-    if (!showContrastTooltips) {
-      setContrastTooltips([]);
+    if (!fullPageOverlayMode) {
+      setFullPageTooltips([]);
       return;
     }
 
-    scanContrastTooltips();
+    scanFullPageTooltips();
 
     let scrollTimeout: number;
     const handleScrollOrResize = () => {
       cancelAnimationFrame(scrollTimeout);
       scrollTimeout = requestAnimationFrame(() => {
-        scanContrastTooltips();
+        scanFullPageTooltips();
       });
     };
 
@@ -307,14 +466,42 @@ export const ContentApp: React.FC = () => {
       observer.disconnect();
       cancelAnimationFrame(scrollTimeout);
     };
+  }, [fullPageOverlayMode]);
+
+  // Synchronize showContrastTooltips with fullPageOverlayMode
+  useEffect(() => {
+    if (showContrastTooltips) {
+      if (fullPageOverlayMode !== "contrast") {
+        setFullPageOverlayMode("contrast");
+      }
+    } else {
+      if (fullPageOverlayMode === "contrast") {
+        setFullPageOverlayMode(null);
+      }
+    }
   }, [showContrastTooltips]);
 
-  // Turn off contrast tooltips if the user navigates away from the fonts tab
   useEffect(() => {
-    if (focusedTab !== "fonts") {
+    if (fullPageOverlayMode === "contrast") {
+      setShowContrastTooltips(true);
+    } else {
       setShowContrastTooltips(false);
     }
+  }, [fullPageOverlayMode]);
+
+  // Turn off contrast tooltips if the user navigates away from the fonts/colors tab
+  useEffect(() => {
+    if (focusedTab !== "fonts" && focusedTab !== "colors" && fullPageOverlayMode === "contrast") {
+      setFullPageOverlayMode(null);
+    }
   }, [focusedTab]);
+
+  // Turn off overlay modes if the text inspector becomes inactive
+  useEffect(() => {
+    if (!textInspectorActive) {
+      setFullPageOverlayMode(null);
+    }
+  }, [textInspectorActive]);
 
   return (
     <>
@@ -336,20 +523,49 @@ export const ContentApp: React.FC = () => {
         />
       ))}
 
-      {/* Contrast Tooltips badging overlay */}
-      {showContrastTooltips && contrastTooltips.map((badge) => (
+      {/* Hover Outline for Text Inspector */}
+      {textInspectorActive && hoveredTextElement && (
+        <InspectorOverlay 
+          element={hoveredTextElement} 
+          borderColor="#3b82f6" 
+          backgroundColor="rgba(59, 130, 246, 0.05)" 
+          label="text element"
+        />
+      )}
+
+      {/* Selected Text Outlines */}
+      {textInspectorActive && selectedTextElements.map((item) => (
+        <InspectorOverlay
+          key={item.id}
+          element={item.element}
+          borderColor="#3b82f6"
+          borderStyle="dashed"
+          backgroundColor="rgba(59, 130, 246, 0.02)"
+          label={`selected text: ${item.textContent}`}
+          interactive={true}
+          onClose={() => {
+            setSelectedTextElements(prev => prev.filter(x => x.id !== item.id));
+            if (activeSelectedTextId === item.id) {
+              setActiveSelectedTextId(null);
+            }
+          }}
+        />
+      ))}
+
+      {/* Full Page Visual Overlay Tooltips */}
+      {fullPageOverlayMode && fullPageTooltips.map((badge) => (
         <div
           key={badge.id}
           style={{
             position: "absolute",
             top: Math.max(0, badge.top - 20),
             left: badge.left,
-            backgroundColor: badge.isPassed ? "#065f46" : "#991b1b",
-            color: "#ffffff",
+            backgroundColor: badge.bgColor,
+            color: badge.textColor,
             fontSize: "9px",
             fontWeight: "bold",
             fontFamily: "monospace",
-            padding: "2px 5px",
+            padding: "2px 5.5px",
             borderRadius: "4px",
             border: "1px solid rgba(255, 255, 255, 0.25)",
             boxShadow: "0 2px 5px rgba(0,0,0,0.35)",
@@ -358,7 +574,7 @@ export const ContentApp: React.FC = () => {
             whiteSpace: "nowrap"
           }}
         >
-          {badge.contrastRatio.toFixed(1)}:1
+          {badge.value}
           {/* Caret pointing downwards */}
           <div
             style={{
@@ -370,7 +586,7 @@ export const ContentApp: React.FC = () => {
               height: 0,
               borderLeft: "4px solid transparent",
               borderRight: "4px solid transparent",
-              borderTop: `4px solid ${badge.isPassed ? "#065f46" : "#991b1b"}`,
+              borderTop: `4px solid ${badge.bgColor}`,
               pointerEvents: "none"
             }}
           />
@@ -393,116 +609,272 @@ export const ContentApp: React.FC = () => {
       )}
 
       {isMenuOpen && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100000] flex flex-col items-center gap-1.5 pointer-events-none select-none">
-          {/* Key shortcut badges */}
-          <div className="flex items-center gap-8 text-[9px] font-bold font-mono tracking-widest text-blue-400 select-none">
-            <span className="flex items-center justify-center w-5 h-5 rounded-full bg-slate-950 border border-blue-500/20 shadow-md">M</span>
-            <span className="flex items-center justify-center w-5 h-5 rounded-full bg-slate-950 border border-blue-500/20 shadow-md">E</span>
-            <span className="flex items-center justify-center w-5 h-5 rounded-full bg-slate-950 border border-blue-500/20 shadow-md">V</span>
-          </div>
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100000] flex flex-col items-center gap-2 pointer-events-none select-none">
+          {/* Detailed Properties Card */}
+          {textInspectorActive && (() => {
+            const activeItem = selectedTextElements.find(item => item.id === activeSelectedTextId);
+            if (!activeItem) return null;
+            return (
+              <div className="bg-slate-950/95 backdrop-blur-md border border-slate-800 p-4 rounded-xl shadow-2xl w-[500px] pointer-events-auto flex flex-col gap-3 text-slate-100 text-xs">
+                <div className="flex items-center justify-between border-b border-slate-900 pb-2">
+                  <span className="font-semibold text-blue-400 font-mono">"{activeItem.textContent}" Properties</span>
+                  <button
+                    onClick={() => setActiveSelectedTextId(null)}
+                    className="p-1 rounded hover:bg-slate-900 text-slate-400 hover:text-slate-200 cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-x-6 gap-y-2 font-mono text-[11px]">
+                  <div className="flex justify-between border-b border-slate-900/50 py-1">
+                    <span className="text-slate-400">Font Family</span>
+                    <span className="text-slate-200 text-right truncate max-w-[150px]" title={activeItem.styles.fontFamily}>
+                      {activeItem.styles.fontFamily.split(",")[0]}
+                    </span>
+                  </div>
+                  <div className="flex justify-between border-b border-slate-900/50 py-1">
+                    <span className="text-slate-400">Font Size</span>
+                    <span className="text-slate-200">{activeItem.styles.fontSize}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-slate-900/50 py-1">
+                    <span className="text-slate-400">Font Weight</span>
+                    <span className="text-slate-200">{activeItem.styles.fontWeight}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-slate-900/50 py-1">
+                    <span className="text-slate-400">Line Height</span>
+                    <span className="text-slate-200">{activeItem.styles.lineHeight}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-slate-900/50 py-1">
+                    <span className="text-slate-400">Text Color</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-full border border-slate-700" style={{ backgroundColor: activeItem.styles.color }} />
+                      <span className="text-slate-200">{activeItem.styles.color}</span>
+                    </div>
+                  </div>
+                  <div className="flex justify-between border-b border-slate-900/50 py-1">
+                    <span className="text-slate-400">Background</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-full border border-slate-700" style={{ backgroundColor: activeItem.styles.backgroundColor }} />
+                      <span className="text-slate-200">{activeItem.styles.backgroundColor}</span>
+                    </div>
+                  </div>
+                  <div className="flex justify-between border-b border-slate-900/50 py-1">
+                    <span className="text-slate-400">Contrast</span>
+                    <span className={`font-bold ${activeItem.styles.contrastRatio >= 4.5 ? "text-emerald-400" : "text-rose-400"}`}>
+                      {activeItem.styles.contrastRatio.toFixed(1)}:1
+                    </span>
+                  </div>
+                  <div className="flex justify-between border-b border-slate-900/50 py-1">
+                    <span className="text-slate-400">Text Align</span>
+                    <span className="text-slate-200">{activeItem.styles.textAlign}</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Secondary Top Bar for Text Inspector */}
+          {textInspectorActive && (
+            <div className="bg-slate-950/95 backdrop-blur-md border border-slate-800 p-2.5 rounded-xl shadow-xl w-[500px] pointer-events-auto flex flex-col gap-2">
+              {/* Row 1: Toggles & Preview */}
+              <div className="flex items-center justify-between gap-3">
+                {/* Left: Toggles */}
+                <div className="flex items-center gap-1.5 text-[10px] font-mono">
+                  {(["fontSize", "fontWeight", "fontFamily", "contrast"] as const).map(mode => {
+                    const label = mode === "fontSize" ? "Font Size"
+                                : mode === "fontWeight" ? "Font Weight"
+                                : mode === "fontFamily" ? "Font Family"
+                                : "Contrast";
+                    const isActive = fullPageOverlayMode === mode;
+                    return (
+                      <button
+                        key={mode}
+                        onClick={() => setFullPageOverlayMode(isActive ? null : mode)}
+                        className={`px-2 py-1 rounded-md border cursor-pointer transition-all ${
+                          isActive
+                            ? "bg-blue-600 border-blue-500 text-white shadow-sm font-semibold"
+                            : "bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Divider */}
+                <div className="border-l border-slate-800 h-6" />
+
+                {/* Right: Hover Preview */}
+                <div className="flex items-center justify-end text-[10px] font-mono text-slate-300 truncate max-w-[160px]">
+                  {hoveredTextStyles ? (
+                    <div className="flex items-center gap-1.5 truncate">
+                      <span className="text-slate-400 font-semibold">{hoveredTextStyles.fontSize}</span>
+                      <span className="text-slate-400 truncate max-w-[50px]">{hoveredTextStyles.fontFamily.split(",")[0]}</span>
+                      <span className={`font-bold ${hoveredTextStyles.contrastRatio >= 4.5 ? "text-emerald-400" : "text-rose-400"}`}>
+                        {hoveredTextStyles.contrastRatio.toFixed(1)}:1
+                      </span>
+                    </div>
+                  ) : (
+                    <span className="text-slate-500 italic">Hover to preview</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Row 2: Selected Items Pills */}
+              {selectedTextElements.length > 0 && (
+                <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-1 border-t border-slate-900/50">
+                  <span className="text-[9px] text-slate-500 font-mono uppercase tracking-wider pr-1">Selected:</span>
+                  {selectedTextElements.map(item => (
+                    <div
+                      key={item.id}
+                      onClick={() => setActiveSelectedTextId(item.id === activeSelectedTextId ? null : item.id)}
+                      className={`flex items-center gap-1 px-2 py-0.5 rounded-md text-[9px] font-mono border cursor-pointer transition-all ${
+                        item.id === activeSelectedTextId
+                          ? "bg-blue-600/25 border-blue-500 text-blue-300"
+                          : "bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-750"
+                      }`}
+                    >
+                      <span className="truncate max-w-[70px]">{item.textContent}</span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedTextElements(prev => prev.filter(x => x.id !== item.id));
+                          if (activeSelectedTextId === item.id) {
+                            setActiveSelectedTextId(null);
+                          }
+                        }}
+                        className="hover:text-rose-455 p-0.5"
+                      >
+                        <X className="w-2 h-2" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Main Toolbar Pill */}
-          <div className="flex items-center gap-4 bg-slate-950/90 backdrop-blur-md border border-slate-800/80 px-4 py-2.5 rounded-full shadow-2xl pointer-events-auto">
+          <div className="flex items-center gap-3 bg-slate-950/90 backdrop-blur-md border border-slate-800/80 px-3.5 py-1.5 rounded-xl shadow-2xl pointer-events-auto">
             {/* Group 1: Tools */}
-            <div className="flex items-center gap-1.5 pr-3 border-r border-slate-800">
+            <div className="flex items-center gap-1.5 pr-2.5 border-r border-slate-800">
               {/* Mouse Inspector */}
               <button
-                onClick={() => setInspectorActive(!inspectorActive)}
-                className={`p-2 rounded-full cursor-pointer transition-all ${
+                onClick={() => {
+                  setInspectorActive(!inspectorActive);
+                  setTextInspectorActive(false);
+                }}
+                className={`flex flex-col items-center justify-center w-9 h-9 rounded-md cursor-pointer transition-all ${
                   inspectorActive
-                    ? "bg-blue-600 text-white shadow-md shadow-blue-600/30 scale-105"
+                    ? "bg-blue-600 text-white shadow-md"
                     : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
                 }`}
                 title="Hover Inspector (Key: M)"
               >
-                <MousePointer className="w-4 h-4" />
+                <MousePointer className="w-3.5 h-3.5" />
+                <span className={`text-[8px] font-bold font-mono mt-0.5 ${inspectorActive ? "text-blue-200" : "text-slate-500"}`}>M</span>
               </button>
 
               {/* Eyedropper Color Picker */}
               {"EyeDropper" in window && (
                 <button
                   onClick={triggerNativeEyeDropper}
-                  className="p-2 rounded-full cursor-pointer text-slate-400 hover:text-slate-200 hover:bg-slate-900 transition-all"
+                  className="flex flex-col items-center justify-center w-9 h-9 rounded-md cursor-pointer text-slate-400 hover:text-slate-200 hover:bg-slate-900 transition-all"
                   title="Color Picker / Eyedropper (Key: E)"
                 >
-                  <Pipette className="w-4 h-4" />
+                  <Pipette className="w-3.5 h-3.5" />
+                  <span className="text-[8px] font-bold font-mono mt-0.5 text-slate-500">E</span>
                 </button>
               )}
 
-              {/* Contrast Badges Toggle */}
+              {/* Text Inspector Toggle */}
               <button
-                onClick={() => setShowContrastTooltips(!showContrastTooltips)}
-                className={`p-2 rounded-full cursor-pointer transition-all ${
-                  showContrastTooltips
-                    ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/30 scale-105"
+                onClick={() => {
+                  setTextInspectorActive(!textInspectorActive);
+                  setInspectorActive(false);
+                }}
+                className={`flex flex-col items-center justify-center w-9 h-9 rounded-md cursor-pointer transition-all ${
+                  textInspectorActive
+                    ? "bg-blue-600 text-white shadow-md"
                     : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
                 }`}
-                title="Toggle Page Contrast Badges"
+                title="Text Inspector (Key: T)"
               >
-                <Type className="w-4 h-4" />
+                <Type className="w-3.5 h-3.5" />
+                <span className={`text-[8px] font-bold font-mono mt-0.5 ${textInspectorActive ? "text-blue-200" : "text-slate-500"}`}>T</span>
               </button>
             </div>
 
             {/* Group 2: Sidebar Tabs */}
-            <div className="flex items-center gap-1.5 px-1 pr-3 border-r border-slate-800">
+            <div className="flex items-center gap-1.5 px-1 pr-2.5 border-r border-slate-800">
+              {/* Inspect tab */}
               <button
                 onClick={() => {
                   setFocusedTab("inspect");
                   setIsOpen(true);
                 }}
-                className={`p-2 rounded-full cursor-pointer transition-all ${
+                className={`flex flex-col items-center justify-center w-9 h-9 rounded-md cursor-pointer transition-all ${
                   isOpen && focusedTab === "inspect"
                     ? "bg-slate-800 text-blue-400 border border-slate-700"
                     : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
                 }`}
-                title="Inspect Elements"
+                title="Inspect Elements (Key: I)"
               >
-                <Search className="w-4 h-4" />
+                <Search className="w-3.5 h-3.5" />
+                <span className={`text-[8px] font-bold font-mono mt-0.5 ${isOpen && focusedTab === "inspect" ? "text-blue-300" : "text-slate-500"}`}>I</span>
               </button>
 
+              {/* Colors tab */}
               <button
                 onClick={() => {
                   setFocusedTab("colors");
                   setIsOpen(true);
                 }}
-                className={`p-2 rounded-full cursor-pointer transition-all ${
+                className={`flex flex-col items-center justify-center w-9 h-9 rounded-md cursor-pointer transition-all ${
                   isOpen && focusedTab === "colors"
                     ? "bg-slate-800 text-blue-400 border border-slate-700"
                     : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
                 }`}
-                title="Color Analyzer"
+                title="Color Analyzer (Key: C)"
               >
-                <Palette className="w-4 h-4" />
+                <Palette className="w-3.5 h-3.5" />
+                <span className={`text-[8px] font-bold font-mono mt-0.5 ${isOpen && focusedTab === "colors" ? "text-blue-300" : "text-slate-500"}`}>C</span>
               </button>
 
+              {/* Fonts tab */}
               <button
                 onClick={() => {
                   setFocusedTab("fonts");
                   setIsOpen(true);
                 }}
-                className={`p-2 rounded-full cursor-pointer transition-all ${
+                className={`flex flex-col items-center justify-center w-9 h-9 rounded-md cursor-pointer transition-all ${
                   isOpen && focusedTab === "fonts"
                     ? "bg-slate-800 text-blue-400 border border-slate-700"
                     : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
                 }`}
-                title="Typography Analyzer"
+                title="Typography Analyzer (Key: F)"
               >
-                <Type className="w-4 h-4" />
+                <Type className="w-3.5 h-3.5" />
+                <span className={`text-[8px] font-bold font-mono mt-0.5 ${isOpen && focusedTab === "fonts" ? "text-blue-300" : "text-slate-500"}`}>F</span>
               </button>
 
+              {/* Images tab */}
               <button
                 onClick={() => {
                   setFocusedTab("images");
                   setIsOpen(true);
                 }}
-                className={`p-2 rounded-full cursor-pointer transition-all ${
+                className={`flex flex-col items-center justify-center w-9 h-9 rounded-md cursor-pointer transition-all ${
                   isOpen && focusedTab === "images"
                     ? "bg-slate-800 text-blue-400 border border-slate-700"
                     : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
                 }`}
-                title="Image Analyzer"
+                title="Image Analyzer (Key: G)"
               >
-                <Image className="w-4 h-4" />
+                <Image className="w-3.5 h-3.5" />
+                <span className={`text-[8px] font-bold font-mono mt-0.5 ${isOpen && focusedTab === "images" ? "text-blue-300" : "text-slate-500"}`}>G</span>
               </button>
             </div>
 
@@ -511,14 +883,15 @@ export const ContentApp: React.FC = () => {
               {/* Toggle Sidebar */}
               <button
                 onClick={() => setIsOpen(!isOpen)}
-                className={`p-2 rounded-full cursor-pointer transition-all ${
+                className={`flex flex-col items-center justify-center w-9 h-9 rounded-md cursor-pointer transition-all ${
                   isOpen
                     ? "bg-blue-600 text-white shadow-md"
                     : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
                 }`}
                 title="Toggle Sidebar (Key: V)"
               >
-                <Layout className="w-4 h-4" />
+                <Layout className="w-3.5 h-3.5" />
+                <span className={`text-[8px] font-bold font-mono mt-0.5 ${isOpen ? "text-blue-300" : "text-slate-500"}`}>V</span>
               </button>
 
               {/* Close Menu */}
@@ -527,12 +900,14 @@ export const ContentApp: React.FC = () => {
                   setIsMenuOpen(false);
                   setIsOpen(false);
                   setInspectorActive(false);
+                  setTextInspectorActive(false);
                   setShowContrastTooltips(false);
                 }}
-                className="p-2 rounded-full cursor-pointer text-rose-500 hover:text-rose-400 hover:bg-rose-950/30 transition-all"
-                title="Close Visual Inspector"
+                className="flex flex-col items-center justify-center w-9 h-9 rounded-md cursor-pointer text-rose-500 hover:text-rose-400 hover:bg-rose-950/30 transition-all"
+                title="Close Visual Inspector (Key: Q)"
               >
-                <Power className="w-4 h-4" />
+                <Power className="w-3.5 h-3.5" />
+                <span className="text-[8px] font-bold font-mono mt-0.5 text-rose-600 hover:text-rose-400">Q</span>
               </button>
             </div>
           </div>

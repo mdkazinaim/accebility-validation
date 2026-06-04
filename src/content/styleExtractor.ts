@@ -15,6 +15,8 @@ export interface ElementStyles {
   fontStyle: string;
   lineHeight: string;
   letterSpacing: string;
+  textAlign: string;
+  textTransform: string;
   color: string;
   backgroundColor: string;
   textColorRGB: RGB;
@@ -149,6 +151,8 @@ export function extractElementStyles(element: HTMLElement): ElementStyles {
     fontStyle: style.fontStyle || "normal",
     lineHeight: style.lineHeight,
     letterSpacing: style.letterSpacing,
+    textAlign: style.textAlign || "left",
+    textTransform: style.textTransform || "none",
     color: style.color,
     backgroundColor: style.backgroundColor,
     textColorRGB,
