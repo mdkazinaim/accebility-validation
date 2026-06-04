@@ -9,7 +9,6 @@ import {
   Check,
   ExternalLink,
   ChevronRight,
-  ChevronLeft,
   Sparkles,
   Pipette
 } from "lucide-react";
@@ -79,10 +78,18 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
   const highlightedElementsRef = useRef<HTMLElement[]>([]);
   const originalStylesRef = useRef<Map<HTMLElement, { outline: string; outlineOffset: string; boxShadow: string }>>(new Map());
 
-  // Drag state
+  // Drag state for open panel
   const [position, setPosition] = useState({ x: window.innerWidth - 400, y: 16 });
   const [isDragging, setIsDragging] = useState(false);
   const dragStartPos = useRef({ x: 0, y: 0 });
+
+  // Drag state for minimized logo button
+  const [dockEdge, setDockEdge] = useState<"left" | "right">("right");
+  const [logoY, setLogoY] = useState(100);
+  const [isDraggingLogo, setIsDraggingLogo] = useState(false);
+  const logoDragStartOffset = useRef({ x: 0, y: 0 });
+  const logoClickStartPos = useRef({ x: 0, y: 0 });
+  const [logoDragPos, setLogoDragPos] = useState<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     if (!isDragging) return;
@@ -92,7 +99,16 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
         y: e.clientY - dragStartPos.current.y
       });
     };
-    const handleMouseUp = () => setIsDragging(false);
+    const handleMouseUp = () => {
+      setIsDragging(false);
+      setPosition(prev => {
+        const isCloserToLeft = prev.x < (window.innerWidth - 384) / 2;
+        const edge = isCloserToLeft ? "left" : "right";
+        setDockEdge(edge);
+        setLogoY(prev.y);
+        return prev;
+      });
+    };
     window.addEventListener("mousemove", handleMouseMove);
     window.addEventListener("mouseup", handleMouseUp);
     return () => {
@@ -109,6 +125,59 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
       x: e.clientX - position.x,
       y: e.clientY - position.y
     };
+  };
+
+  useEffect(() => {
+    if (!isDraggingLogo) return;
+    const handleMouseMove = (e: MouseEvent) => {
+      const x = e.clientX - logoDragStartOffset.current.x;
+      const y = e.clientY - logoDragStartOffset.current.y;
+      setLogoDragPos({ x, y });
+    };
+
+    const handleMouseUp = (e: MouseEvent) => {
+      setIsDraggingLogo(false);
+      
+      const dx = Math.abs(e.clientX - logoClickStartPos.current.x);
+      const dy = Math.abs(e.clientY - logoClickStartPos.current.y);
+      
+      if (dx < 5 && dy < 5) {
+        // Quick click - restore panel
+        setIsMinimized(false);
+      } else {
+        // Reposition and snap to nearest edge
+        const isCloserToLeft = e.clientX < window.innerWidth / 2;
+        const finalEdge = isCloserToLeft ? "left" : "right";
+        setDockEdge(finalEdge);
+        
+        const finalY = Math.max(16, Math.min(e.clientY - logoDragStartOffset.current.y, window.innerHeight - 80));
+        setLogoY(finalY);
+        
+        setPosition({
+          x: finalEdge === "right" ? window.innerWidth - 400 : 16,
+          y: finalY
+        });
+      }
+      setLogoDragPos(null);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isDraggingLogo]);
+
+  const handleLogoMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDraggingLogo(true);
+    const startX = dockEdge === "left" ? 0 : window.innerWidth - 48;
+    logoDragStartOffset.current = {
+      x: e.clientX - startX,
+      y: e.clientY - logoY
+    };
+    logoClickStartPos.current = { x: e.clientX, y: e.clientY };
   };
 
   // Reset minimize on tab change
@@ -372,24 +441,6 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
   // Harmony generators
   const harmonies = generateSuggestions(selectedColor);
 
-  // If minimized, display a sleek collapsed trigger tab
-  if (isMinimized) {
-    return (
-      <button
-        onClick={() => setIsMinimized(false)}
-        style={{
-          top: `${position.y}px`,
-        }}
-        className="fixed right-0 z-[100000] bg-slate-900 text-white p-3 rounded-l-xl border-l-2 border-y border-blue-500 shadow-2xl hover:bg-slate-800 transition-all flex flex-col items-center gap-2 cursor-pointer group"
-      >
-        <ChevronLeft className="w-5 h-5 text-blue-400 group-hover:-translate-x-0.5 transition-transform pointer-events-none" />
-        <span className="text-[10px] tracking-widest font-bold uppercase [writing-mode:vertical-lr] select-none text-slate-300 pointer-events-none">
-          Inspector
-        </span>
-      </button>
-    );
-  }
-
   // Sync activeItemIndex bounds when locked items list changes
   useEffect(() => {
     if (activeItemIndex >= lockedItems.length) {
@@ -418,15 +469,54 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
   const aaPassed = isLargeText ? contrastRatio >= 3.0 : contrastRatio >= 4.5;
   const aaaPassed = isLargeText ? contrastRatio >= 4.5 : contrastRatio >= 7.0;
 
+  // Computed minimized logo coordinates
+  const logoLeft = isDraggingLogo && logoDragPos
+    ? logoDragPos.x
+    : (dockEdge === "left" ? 0 : window.innerWidth - 48);
+  const logoTop = isDraggingLogo && logoDragPos
+    ? logoDragPos.y
+    : logoY;
+
   return (
-    <div
-      style={{
-        top: `${position.y}px`,
-        left: `${position.x}px`,
-        height: 'calc(100vh - 32px)'
-      }}
-      className="fixed w-96 bg-slate-950/95 backdrop-blur-md text-slate-100 rounded-2xl border border-slate-800 shadow-2xl z-[100000] flex flex-col overflow-hidden font-sans"
-    >
+    <>
+      {/* Minimized Logo Button */}
+      <button
+        onMouseDown={handleLogoMouseDown}
+        style={{
+          left: `${logoLeft}px`,
+          top: `${logoTop}px`,
+          transition: isDraggingLogo ? "none" : "left 0.3s cubic-bezier(0.4, 0, 0.2, 1), top 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease",
+          opacity: isMinimized ? 1 : 0,
+          pointerEvents: isMinimized ? "auto" : "none",
+          width: "48px",
+          height: "48px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center"
+        }}
+        className={`fixed z-[100000] bg-slate-950/95 text-white shadow-2xl hover:bg-slate-900 border border-slate-800 cursor-grab active:cursor-grabbing group ${
+          dockEdge === "left"
+            ? "rounded-r-2xl border-l-0"
+            : "rounded-l-2xl border-r-0"
+        }`}
+      >
+        <Sparkles className="w-5 h-5 text-blue-400 group-hover:scale-110 transition-transform pointer-events-none" />
+      </button>
+
+      {/* Main Panel */}
+      <div
+        style={{
+          top: `${position.y}px`,
+          left: isMinimized
+            ? (dockEdge === "right" ? `${window.innerWidth}px` : `-384px`)
+            : `${position.x}px`,
+          height: "calc(100vh - 32px)",
+          transition: isDragging ? "none" : "left 0.3s cubic-bezier(0.4, 0, 0.2, 1), top 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease",
+          opacity: isMinimized ? 0 : 1,
+          pointerEvents: isMinimized ? "none" : "auto",
+        }}
+        className="fixed w-96 bg-slate-950/95 backdrop-blur-md text-slate-100 rounded-2xl border border-slate-800 shadow-2xl z-[100000] flex flex-col overflow-hidden font-sans"
+      >
 
       {/* Header Panel */}
       <div
@@ -1011,5 +1101,6 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
       </div>
 
     </div>
+    </>
   );
 };
