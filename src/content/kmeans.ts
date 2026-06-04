@@ -86,7 +86,7 @@ export function extractPalette(colors: RGB[], k = 6): string[] {
     });
   }
 
-  const maxIterations = 5;
+  const maxIterations = 20;
   for (let iter = 0; iter < maxIterations; iter++) {
     // Assign colors to centroids
     const clusters: RGB[][] = Array.from({ length: k }, () => []);
@@ -120,8 +120,22 @@ export function extractPalette(colors: RGB[], k = 6): string[] {
     }
   }
 
+  // Snap centroids to the nearest actual color present on the page to prevent "muddy" averages
+  const snappedCentroids = centroids.map(centroid => {
+    let bestColor = centroid;
+    let minD = Infinity;
+    for (const c of uniqueColors) {
+      const dist = Math.pow(c.r - centroid.r, 2) + Math.pow(c.g - centroid.g, 2) + Math.pow(c.b - centroid.b, 2);
+      if (dist < minD) {
+        minD = dist;
+        bestColor = c;
+      }
+    }
+    return bestColor;
+  });
+
   // Convert to unique hex color strings
-  const hexes = centroids.map(rgbToHex);
+  const hexes = snappedCentroids.map(rgbToHex);
   return Array.from(new Set(hexes));
 }
 
@@ -132,10 +146,10 @@ export function scanPageColors(): RGB[] {
   const selector = "body *:not(script):not(style):not(#accessibility-inspector-extension-root):not(#accessibility-inspector-extension-root *)";
   const elements = Array.from(document.querySelectorAll(selector));
   
-  // Sample up to 1000 elements for accuracy while preserving excellent performance
+  // Sample up to 3000 elements for higher accuracy while preserving excellent performance
   let sampledElements = elements;
-  if (elements.length > 1000) {
-    const step = Math.floor(elements.length / 1000);
+  if (elements.length > 3000) {
+    const step = Math.floor(elements.length / 3000);
     sampledElements = [];
     for (let i = 0; i < elements.length; i += step) {
       sampledElements.push(elements[i]);

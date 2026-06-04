@@ -5,9 +5,14 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 // Communication link if the content script needs to send messages
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "ping") {
     sendResponse({ status: "ok" });
+  } else if (message.action === "capture-tab") {
+    chrome.tabs.captureVisibleTab(sender.tab?.windowId || chrome.windows.WINDOW_ID_CURRENT, { format: "png" }, (dataUrl) => {
+      sendResponse({ dataUrl });
+    });
+    return true; // Keep channel open for async response
   }
   return true;
 });

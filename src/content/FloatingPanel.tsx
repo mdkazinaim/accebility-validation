@@ -595,7 +595,7 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
             ? (dockEdge === "right" ? `${window.innerWidth}px` : `-384px`)
             : `${position.x}px`,
           height: "calc(100vh - 32px)",
-          transition: isDragging ? "none" : "left 0.3s cubic-bezier(0.4, 0, 0.2, 1), top 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease",
+          transition: isDragging || hidden ? "none" : "left 0.3s cubic-bezier(0.4, 0, 0.2, 1), top 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease",
           opacity: isMinimized || hidden ? 0 : 1,
           pointerEvents: isMinimized || hidden ? "none" : "auto",
         }}

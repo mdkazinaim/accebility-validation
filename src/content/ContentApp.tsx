@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { InspectorOverlay } from "./InspectorOverlay";
 import { FloatingPanel } from "./FloatingPanel";
 import { ElementStyles, extractElementStyles, parseColor } from "./styleExtractor";
@@ -6,7 +6,7 @@ import {
   MousePointer,
   Type,
   Palette,
-  Image,
+  Image as ImageIcon,
   Search,
   Layout,
   Power,
@@ -94,6 +94,14 @@ export const ContentApp: React.FC = () => {
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [isEyedropperActive, setIsEyedropperActive] = useState(false);
   const [selectedColor, setSelectedColorState] = useState<string>("#3B82F6");
+  const [colorPickerHoveredElement, setColorPickerHoveredElement] = useState<HTMLElement | null>(null);
+  const [colorPickerColorHex, setColorPickerColorHex] = useState<string | null>(null);
+  const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
+  const [screenshotDataUrl, setScreenshotDataUrl] = useState<string | null>(null);
+  const imageDataRef = useRef<ImageData | null>(null);
+  const imageScaleRef = useRef<number>(1);
+  const sourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const normalizeToHex = (colorStr: string): string => {
     if (!colorStr) return "#3B82F6";
@@ -206,44 +214,170 @@ export const ContentApp: React.FC = () => {
     };
   }, [inspectorActive, isOpen, isMenuOpen]);
 
-  // Native EyeDropper triggering inside content script
-  const triggerNativeEyeDropper = async () => {
-    if (!("EyeDropper" in window)) return;
-    const wasInspectorActive = inspectorActive;
-    if (wasInspectorActive) setInspectorActive(false);
+  // DOM Color Picker mode inside content script
+  const triggerNativeEyeDropper = () => {
+    if (isEyedropperActive) {
+      setIsEyedropperActive(false);
+      setColorPickerHoveredElement(null);
+      setColorPickerColorHex(null);
+      setScreenshotDataUrl(null);
+      imageDataRef.current = null;
+      return;
+    }
+    setInspectorActive(false);
+    setTextInspectorActive(false);
+    setIsEyedropperActive(true); // Hide the floating panel instantly
+    
+    // Wait for React to render the hidden state and browser to paint it
+    setTimeout(() => {
+      // Request a screenshot for the pixel magnifier
+      chrome.runtime.sendMessage({ action: "capture-tab" }, (response) => {
+        if (response && response.dataUrl) {
+          setScreenshotDataUrl(response.dataUrl);
+          
+          // Parse the image data to allow instant precise pixel color lookups
+          const img = new window.Image();
+          img.onload = () => {
+            const canvas = document.createElement("canvas");
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext("2d");
+            if (ctx) {
+              ctx.drawImage(img, 0, 0);
+              imageDataRef.current = ctx.getImageData(0, 0, img.width, img.height);
+              imageScaleRef.current = img.width / window.innerWidth;
+              sourceCanvasRef.current = canvas;
+            }
+          };
+          img.src = response.dataUrl;
+        }
+      });
+    }, 50);
+  };
 
-    setIsEyedropperActive(true);
+  // Hover handler for DOM Color Picker
+  useEffect(() => {
+    if (!isEyedropperActive) {
+      setColorPickerHoveredElement(null);
+      setColorPickerColorHex(null);
+      return;
+    }
 
-    // Inject styles to temporarily disable hover states on page elements
+    // Set cursor to crosshair during color picking
     const styleEl = document.createElement("style");
-    styleEl.id = "accessibility-inspector-eyedropper-style";
+    styleEl.id = "accessibility-inspector-eyedropper-cursor";
     styleEl.textContent = `
-      *:not(#accessibility-inspector-extension-root) {
-        pointer-events: none !important;
+      * {
+        cursor: crosshair !important;
       }
     `;
     document.head.appendChild(styleEl);
 
-    try {
-      const eyeDropper = new (window as any).EyeDropper();
-      const result = await eyeDropper.open();
-      if (result && result.sRGBHex) {
-        setSelectedColor(result.sRGBHex);
-        // Force-open panel and set tab to colors
+    const handleMouseMove = (e: MouseEvent) => {
+      setCursorPos({ x: e.clientX, y: e.clientY });
+      
+      const target = e.target as HTMLElement;
+      if (!target) return;
+
+      const shadowHost = document.getElementById("accessibility-inspector-extension-root");
+      if (shadowHost && shadowHost.contains(target)) {
+        setColorPickerHoveredElement(null);
+        setColorPickerColorHex(null);
+        return;
+      }
+
+      setColorPickerHoveredElement(target);
+
+      if (imageDataRef.current) {
+        const scale = imageScaleRef.current;
+        // e.clientX/Y are relative to viewport, same as the screenshot canvas
+        const x = Math.floor(e.clientX * scale);
+        const y = Math.floor(e.clientY * scale);
+        
+        const data = imageDataRef.current.data;
+        const width = imageDataRef.current.width;
+        const index = (y * width + x) * 4;
+        
+        if (index >= 0 && index < data.length) {
+          const r = data[index];
+          const g = data[index + 1];
+          const b = data[index + 2];
+          
+          const hex = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`.toUpperCase();
+          setColorPickerColorHex(hex);
+        } else {
+          setColorPickerColorHex(null);
+        }
+        
+        // Draw pixel-perfect preview
+        if (sourceCanvasRef.current && previewCanvasRef.current) {
+          const previewCtx = previewCanvasRef.current.getContext("2d");
+          if (previewCtx) {
+            previewCtx.imageSmoothingEnabled = false;
+            // Clear canvas
+            previewCtx.clearRect(0, 0, 120, 120);
+            
+            // We want to sample a 15x15 region around the mouse and scale it to 120x120 (8x scale)
+            const regionSize = 15;
+            const srcX = x - regionSize / 2;
+            const srcY = y - regionSize / 2;
+            
+            previewCtx.drawImage(
+              sourceCanvasRef.current,
+              srcX, srcY, regionSize, regionSize,
+              0, 0, 120, 120
+            );
+          }
+        }
+      } else {
+        setColorPickerColorHex(null);
+      }
+    };
+
+    const handleMouseLeave = () => {
+      setColorPickerHoveredElement(null);
+      setColorPickerColorHex(null);
+    };
+
+    document.addEventListener("mousemove", handleMouseMove, { passive: true });
+    document.addEventListener("mouseleave", handleMouseLeave);
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseleave", handleMouseLeave);
+      document.getElementById("accessibility-inspector-eyedropper-cursor")?.remove();
+    };
+  }, [isEyedropperActive]);
+
+  // Click handler for DOM Color Picker
+  useEffect(() => {
+    if (!isEyedropperActive) return;
+
+    const handleClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target) return;
+
+      const shadowHost = document.getElementById("accessibility-inspector-extension-root");
+      if (shadowHost && shadowHost.contains(target)) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      if (colorPickerColorHex) {
+        setSelectedColor(colorPickerColorHex);
         setIsOpen(true);
         setFocusedTab("colors");
       }
-    } catch (e) {
-      console.warn("EyeDropper aborted:", e);
-    } finally {
+      
       setIsEyedropperActive(false);
-      // Remove injected styles
-      const targetStyle = document.getElementById("accessibility-inspector-eyedropper-style");
-      if (targetStyle) targetStyle.remove();
+      setColorPickerHoveredElement(null);
+      setColorPickerColorHex(null);
+    };
 
-      if (wasInspectorActive) setInspectorActive(true);
-    }
-  };
+    document.addEventListener("click", handleClick, { capture: true });
+    return () => {
+      document.removeEventListener("click", handleClick, { capture: true });
+    };
+  }, [isEyedropperActive, colorPickerColorHex]);
 
   // Listen for keyboard shortcuts when menu is open
   useEffect(() => {
@@ -674,6 +808,75 @@ export const ContentApp: React.FC = () => {
           label="text element"
           showPopover={false}
         />
+      )}
+
+      {/* DOM Color Picker Overlay */}
+      {isEyedropperActive && colorPickerHoveredElement && (
+        <InspectorOverlay 
+          element={colorPickerHoveredElement} 
+          borderColor={colorPickerColorHex || "#ef4444"} 
+          backgroundColor="transparent"
+          borderStyle="solid"
+          label={colorPickerColorHex ? `Color: ${colorPickerColorHex}` : "Picking..."}
+          showPopover={false}
+        />
+      )}
+
+      {/* Eyedropper Magnifier Preview */}
+      {isEyedropperActive && cursorPos && (
+        <div
+          style={{
+            position: "fixed",
+            top: cursorPos.y,
+            left: cursorPos.x,
+            transform: "translate(15px, 15px)", // Offset to bottom-right of cursor
+            zIndex: 2147483647,
+            pointerEvents: "none",
+          }}
+        >
+          {/* The zoom circle */}
+          <div
+            style={{
+              width: "120px",
+              height: "120px",
+              borderRadius: "50%",
+              backgroundColor: screenshotDataUrl ? undefined : (colorPickerColorHex || "#ffffff"),
+              border: "4px solid rgba(0, 0, 0, 0.1)",
+              boxShadow: "0 0 0 1px rgba(0,0,0,0.1), 0 16px 32px rgba(0,0,0,0.2)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              position: "relative",
+              overflow: "hidden"
+            }}
+          >
+            {/* The pixel-perfect preview canvas */}
+            <canvas
+              ref={previewCanvasRef}
+              width={120}
+              height={120}
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
+                height: "100%",
+                imageRendering: "pixelated",
+                pointerEvents: "none"
+              }}
+            />
+            {/* The center pixel indicator */}
+            <div style={{ position: "relative", zIndex: 10, width: "8px", height: "8px", border: "1px solid white", boxShadow: "0 0 0 1px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(0,0,0,0.5)" }} />
+            
+            {/* Eyedropper floating icon */}
+            <div 
+              className="absolute bg-slate-900 text-blue-400 rounded-full flex items-center justify-center shadow-xl border border-slate-700"
+              style={{ width: "32px", height: "32px", bottom: "-4px", right: "-4px" }}
+            >
+              <Pipette className="w-4 h-4" />
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Selected Text Outlines */}
@@ -1150,7 +1353,7 @@ export const ContentApp: React.FC = () => {
                 }`}
                 title="Image Analyzer (Key: G)"
               >
-                <Image className="w-3.5 h-3.5" />
+                <ImageIcon className="w-3.5 h-3.5" />
                 <span className={`text-[8px] font-bold font-mono mt-0.5 ${isOpen && focusedTab === "images" ? "text-blue-300" : "text-slate-500"}`}>G</span>
               </button>
             </div>
