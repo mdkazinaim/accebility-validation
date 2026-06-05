@@ -68,6 +68,28 @@ export function parseColor(colorStr: string): RGB {
     }
   }
 
+  // Fast path for rgb() and rgba() strings (most common from getComputedStyle)
+  if (str.startsWith("rgb")) {
+    const match = str.match(/rgba?\((\d+)[,\s]+(\d+)[,\s]+(\d+)(?:[,\s/]+([\d.%]+))?\)/);
+    if (match) {
+      const alphaStr = match[4];
+      let a = 1;
+      if (alphaStr) {
+        if (alphaStr.endsWith("%")) {
+          a = parseFloat(alphaStr) / 100;
+        } else {
+          a = parseFloat(alphaStr);
+        }
+      }
+      return {
+        r: parseInt(match[1], 10),
+        g: parseInt(match[2], 10),
+        b: parseInt(match[3], 10),
+        a
+      };
+    }
+  }
+
   // Use the browser's native CSS engine for parsing anything else
   try {
     if (!tempEl) {
@@ -99,27 +121,7 @@ export function parseColor(colorStr: string): RGB {
     console.warn("Native color parse failed, falling back:", e);
   }
 
-  // Secondary fallback: manual rgb parsing if elements can't be created
-  if (str.startsWith("rgb")) {
-    const match = str.match(/rgba?\((\d+)[,\s]+(\d+)[,\s]+(\d+)(?:[,\s/]+([\d.%]+))?\)/);
-    if (match) {
-      const alphaStr = match[4];
-      let a = 1;
-      if (alphaStr) {
-        if (alphaStr.endsWith("%")) {
-          a = parseFloat(alphaStr) / 100;
-        } else {
-          a = parseFloat(alphaStr);
-        }
-      }
-      return {
-        r: parseInt(match[1], 10),
-        g: parseInt(match[2], 10),
-        b: parseInt(match[3], 10),
-        a
-      };
-    }
-  }
+
 
   const colors: Record<string, RGB> = {
     white: { r: 255, g: 255, b: 255, a: 1 },

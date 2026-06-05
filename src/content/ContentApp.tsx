@@ -918,7 +918,7 @@ export const ContentApp: React.FC = () => {
               gap: "2px",
               pointerEvents: "none",
               zIndex: isHovered ? 999999 : 999998,
-              opacity: isHovered ? 1 : 0.35,
+              opacity: isHovered ? 1 : 0.75,
               transition: "opacity 0.15s ease-in-out, z-index 0.15s ease-in-out",
             }}
           >
@@ -927,7 +927,7 @@ export const ContentApp: React.FC = () => {
               {/* Row of coloured chips */}
               <div style={{ display: "inline-flex", gap: "2px", borderRadius: "4px", overflow: "hidden", boxShadow: "0 2px 6px rgba(0,0,0,0.45)" }}>
                 {tip.segments.map((seg, i) => (
-                  <span
+                  <span                                                     
                     key={i}
                     style={{
                       backgroundColor: seg.bgColor,

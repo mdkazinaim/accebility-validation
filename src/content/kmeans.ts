@@ -62,7 +62,7 @@ export function hslToHex(h: number, s: number, l: number): string {
 
 // Extract ALL unique colors from the page, sorted by frequency (most used first).
 // No clustering, no merging, no distance thresholds. Every distinct hex is returned.
-export function extractPalette(colors: RGB[], _k = 100): string[] {
+export function extractPalette(colors: RGB[]): string[] {
   if (colors.length === 0) {
     return [];
   }
