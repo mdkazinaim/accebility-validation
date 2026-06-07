@@ -979,8 +979,8 @@ export const ContentApp: React.FC = () => {
 
       {isMenuOpen && (
         <div
-          style={{ display: isEyedropperActive ? "none" : "flex" }}
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[2000000] flex flex-col items-center gap-2 pointer-events-none select-none"
+          style={{ display: isEyedropperActive ? "none" : "flex", transform: "translateX(-50%)" }}
+          className="fixed bottom-6 left-1/2 z-[2000000] flex flex-col items-center gap-2 pointer-events-none select-none"
         >
           {/* Detailed Properties Card */}
           {textInspectorActive && (() => {

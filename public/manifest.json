@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "Accessibility & Design Validator",
-  "version": "1.0.0",
+  "name": "Frontend Dev Tool",
+  "version": "1.0.1",
   "description": "Inspect computed styles, typography, contrast ratios, and extract page elements.",
   "permissions": [
     "activeTab",
@@ -9,7 +9,11 @@
     "storage"
   ],
   "action": {
-    "default_icon": "icon.svg"
+    "default_icon": {
+      "16": "layers.png",
+      "48": "layers.png",
+      "128": "layers.png"
+    }
   },
   "background": {
     "service_worker": "assets/background.js",
@@ -19,14 +23,13 @@
     {
       "matches": ["<all_urls>"],
       "js": ["assets/content.js"],
-      "css": ["assets/popup.css"],
       "run_at": "document_end"
     }
   ],
   "icons": {
-    "16": "icon.svg",
-    "48": "icon.svg",
-    "128": "icon.svg"
+    "16": "layers.png",
+    "48": "layers.png",
+    "128": "layers.png"
   },
   "web_accessible_resources": [
     {
