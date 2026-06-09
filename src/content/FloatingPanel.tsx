@@ -743,41 +743,41 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
         {activeTab === "inspect" && (
           lockedStyles ? (
             <div className="space-y-4 animate-fade-in">
-              {/* Selected Elements Horizontal Selector Strip */}
+              {/* Selected Elements — Vertical stacked list */}
               {lockedItems.length > 0 && (
-                <div className="space-y-1.5">
-                  <div className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">
+                <div className="space-y-1 border-b border-slate-900 pb-3">
+                  <div className="text-[9px] text-slate-500 font-bold uppercase tracking-wider mb-1.5">
                     Selected Elements ({lockedItems.length})
                   </div>
-                  <div className="flex gap-1.5 overflow-x-auto pb-2 border-b border-slate-900 scrollbar-thin scrollbar-thumb-slate-850">
+                  <div className="flex flex-col gap-1">
                     {lockedItems.map((item, idx) => {
                       const isActive = idx === activeItemIndex;
                       const tagName = item.element.tagName.toLowerCase();
                       const classPart = item.element.className
                         ? typeof item.element.className === "string"
-                          ? "." + item.element.className.trim().split(/\s+/)[0]
+                          ? "." + item.element.className.trim().split(/\s+/).filter(Boolean).join(".")
                           : ""
                         : "";
+                      const label = `${tagName}${classPart}`;
                       return (
                         <div
                           key={`tag-${idx}-${tagName}`}
-                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono transition-all border shrink-0 ${isActive
-                              ? "bg-blue-600/20 border-blue-500 text-blue-400 font-bold"
-                              : "bg-slate-900/40 border-slate-800 text-slate-400 hover:text-slate-200"
-                            }`}
+                          onClick={() => setActiveItemIndex(idx)}
+                          className={`flex items-center justify-between w-full px-2.5 py-1.5 rounded-md text-xs font-mono transition-all border cursor-pointer ${
+                            isActive
+                              ? "bg-blue-600/20 border-blue-500 text-blue-400"
+                              : "bg-slate-900/40 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700"
+                          }`}
                         >
-                          <span
-                            onClick={() => setActiveItemIndex(idx)}
-                            className="cursor-pointer select-none"
-                          >
-                            {tagName}{classPart.length > 12 ? classPart.slice(0, 12) + "..." : classPart}
+                          <span className="truncate select-none flex-1" title={label}>
+                            {label.length > 32 ? label.slice(0, 32) + "…" : label}
                           </span>
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
                               onRemoveLockedItem(item.element);
                             }}
-                            className="text-slate-500 hover:text-red-400 cursor-pointer font-bold ml-1"
+                            className="text-slate-500 hover:text-red-400 cursor-pointer font-bold ml-2 shrink-0"
                             style={{ background: "none", border: "none", padding: 0 }}
                           >
                             &times;

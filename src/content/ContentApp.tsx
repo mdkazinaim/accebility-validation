@@ -852,6 +852,27 @@ export const ContentApp: React.FC = () => {
     }
   }, [textInspectorActive]);
 
+  // Reset ALL inspector state when the menu is closed so it opens fresh
+  useEffect(() => {
+    if (!isMenuOpen) {
+      setInspectorActive(false);
+      setGridInspectorActive(false);
+      setTextInspectorActive(false);
+      setLockedItems([]);
+      setHoveredElement(null);
+      setHoveredTextElement(null);
+      setHoveredTextStyles(null);
+      setSelectedTextElements([]);
+      setActiveSelectedTextId(null);
+      setIsOpen(false);
+      setActiveOverlayModes(new Set());
+      setShowContrastTooltips(false);
+      setIsEyedropperActive(false);
+      setColorPickerHoveredElement(null);
+      setColorPickerColorHex(null);
+    }
+  }, [isMenuOpen]);
+
   return (
     <>
       {isMenuOpen && (
