@@ -937,10 +937,8 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
                     {lockedItems.map((item, idx) => {
                       const isActive = idx === activeItemIndex;
                       const tagName = item.element.tagName.toLowerCase();
-                      const classPart = item.element.className
-                        ? typeof item.element.className === "string"
-                          ? "." + item.element.className.trim().split(/\s+/).filter(Boolean).join(".")
-                          : ""
+                      const classPart = item.styles.className
+                        ? "." + item.styles.className.trim().split(/\s+/).filter(Boolean).join(".")
                         : "";
                       const label = `${tagName}${classPart}`;
                       return (

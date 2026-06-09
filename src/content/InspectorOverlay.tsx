@@ -119,6 +119,17 @@ export const InspectorOverlay: React.FC<InspectorOverlayProps> = ({
   const scrollX = window.scrollX;
   const style = window.getComputedStyle(element);
 
+  // Track mouse position for cursor-following popover
+  const [mousePos, setMousePos] = React.useState<{ x: number; y: number } | null>(null);
+
+  React.useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      setMousePos({ x: e.clientX, y: e.clientY });
+    };
+    document.addEventListener("mousemove", handleMouseMove, { passive: true });
+    return () => document.removeEventListener("mousemove", handleMouseMove);
+  }, []);
+
   // Extract computed styles dynamically for the popover
   let styles;
   try {
@@ -165,7 +176,7 @@ export const InspectorOverlay: React.FC<InspectorOverlayProps> = ({
     left: rect.left + scrollX - mLeft,
     width: rect.width + mLeft + mRight,
     height: rect.height + mTop + mBottom,
-    borderTop: `${mTop}px solid rgba(249, 115, 22, 0.25)`, // Translucent orange margin
+    borderTop: `${mTop}px solid rgba(249, 115, 22, 0.25)`,
     borderRight: `${mRight}px solid rgba(249, 115, 22, 0.25)`,
     borderBottom: `${mBottom}px solid rgba(249, 115, 22, 0.25)`,
     borderLeft: `${mLeft}px solid rgba(249, 115, 22, 0.25)`,
@@ -180,7 +191,7 @@ export const InspectorOverlay: React.FC<InspectorOverlayProps> = ({
     left: rect.left + scrollX + bLeft,
     width: rect.width - bLeft - bRight,
     height: rect.height - bTop - bBottom,
-    borderTop: `${pTop}px solid rgba(16, 185, 129, 0.25)`, // Translucent green padding
+    borderTop: `${pTop}px solid rgba(16, 185, 129, 0.25)`,
     borderRight: `${pRight}px solid rgba(16, 185, 129, 0.25)`,
     borderBottom: `${pBottom}px solid rgba(16, 185, 129, 0.25)`,
     borderLeft: `${pLeft}px solid rgba(16, 185, 129, 0.25)`,
@@ -195,83 +206,91 @@ export const InspectorOverlay: React.FC<InspectorOverlayProps> = ({
     left: rect.left + scrollX + bLeft + pLeft,
     width: Math.max(0, rect.width - bLeft - bRight - pLeft - pRight),
     height: Math.max(0, rect.height - bTop - bBottom - pTop - pBottom),
-    backgroundColor: "rgba(59, 130, 246, 0.15)", // Translucent blue content
+    backgroundColor: "rgba(59, 130, 246, 0.15)",
     border: "1px dashed rgba(59, 130, 246, 0.35)",
     boxSizing: "border-box",
     pointerEvents: "none",
     zIndex: 999999,
   };
 
-  // Position of popover (placed to the side if room, else above/below)
   const popoverWidth = 280;
   const popoverHeight = mode === "grid" ? 340 : 320;
-  const margin = 12;
 
-  const spaceRight = window.innerWidth - rect.right;
-  const spaceLeft = rect.left;
+  let finalLeft: number;
+  let finalTop: number;
 
-  let popoverLeft = rect.left;
-  let popoverTop = rect.bottom;
-  let placement: "right" | "left" | "below" | "above" = "below";
+  if (mode === "grid") {
+    // --- GRID MODE: popover follows the mouse cursor closely ---
+    const cursorOffset = 16;
+    const cursorX = mousePos ? mousePos.x : rect.right;
+    const cursorY = mousePos ? mousePos.y : rect.bottom;
 
-  if (spaceRight >= popoverWidth + 24) {
-    // Position to the right of the element
-    popoverLeft = rect.right + margin;
-    popoverTop = rect.top;
-    placement = "right";
-  } else if (spaceLeft >= popoverWidth + 24) {
-    // Position to the left of the element
-    popoverLeft = rect.left - popoverWidth - margin;
-    popoverTop = rect.top;
-    placement = "left";
+    // Prefer right of cursor; flip left if not enough space
+    if (cursorX + cursorOffset + popoverWidth <= window.innerWidth - 8) {
+      finalLeft = cursorX + cursorOffset + scrollX;
+    } else {
+      finalLeft = cursorX - cursorOffset - popoverWidth + scrollX;
+    }
+
+    // Prefer below cursor; flip up if not enough space
+    if (cursorY + cursorOffset + popoverHeight <= window.innerHeight - 8) {
+      finalTop = cursorY + cursorOffset + scrollY;
+    } else {
+      finalTop = cursorY - cursorOffset - popoverHeight + scrollY;
+    }
+
+    // Clamp to viewport
+    finalLeft = Math.max(8 + scrollX, Math.min(finalLeft, window.innerWidth - popoverWidth - 8 + scrollX));
+    finalTop = Math.max(8 + scrollY, finalTop);
   } else {
-    // Fallback to above/below
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const showAbove = spaceBelow < popoverHeight + 20 && rect.top > popoverHeight + 20;
-    popoverLeft = rect.left;
-    popoverTop = showAbove 
-      ? rect.top - popoverHeight - margin 
-      : rect.bottom + margin;
-    placement = showAbove ? "above" : "below";
-  }
+    // --- DEFAULT MODE: popover placed beside/above/below the hovered element ---
+    const margin = 12;
+    const spaceRight = window.innerWidth - rect.right;
+    const spaceLeft = rect.left;
 
-  // Horizontal bounds constraint
-  if (popoverLeft + popoverWidth > window.innerWidth - 16) {
-    popoverLeft = window.innerWidth - popoverWidth - 16;
-  }
-  if (popoverLeft < 16) {
-    popoverLeft = 16;
-  }
-  const finalLeft = popoverLeft + scrollX;
+    let popoverLeft = rect.left;
+    let popoverTop = rect.bottom;
+    let placement: "right" | "left" | "below" | "above" = "below";
 
-  // Vertical bounds constraint
-  if (placement === "right" || placement === "left") {
-    if (popoverTop + popoverHeight > window.innerHeight - 16) {
-      popoverTop = window.innerHeight - popoverHeight - 16;
+    if (spaceRight >= popoverWidth + 24) {
+      popoverLeft = rect.right + margin;
+      popoverTop = rect.top;
+      placement = "right";
+    } else if (spaceLeft >= popoverWidth + 24) {
+      popoverLeft = rect.left - popoverWidth - margin;
+      popoverTop = rect.top;
+      placement = "left";
+    } else {
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const showAbove = spaceBelow < popoverHeight + 20 && rect.top > popoverHeight + 20;
+      popoverLeft = rect.left;
+      popoverTop = showAbove
+        ? rect.top - popoverHeight - margin
+        : rect.bottom + margin;
+      placement = showAbove ? "above" : "below";
     }
-    if (popoverTop < 16) {
-      popoverTop = 16;
-    }
-  } else {
-    if (placement === "below") {
-      if (popoverTop + popoverHeight > window.innerHeight - 16) {
-        if (rect.top > popoverHeight + 20) {
-          popoverTop = rect.top - popoverHeight - margin;
-        } else {
-          popoverTop = window.innerHeight - popoverHeight - 16;
-        }
+
+    if (popoverLeft + popoverWidth > window.innerWidth - 16) popoverLeft = window.innerWidth - popoverWidth - 16;
+    if (popoverLeft < 16) popoverLeft = 16;
+
+    if (placement === "right" || placement === "left") {
+      if (popoverTop + popoverHeight > window.innerHeight - 16) popoverTop = window.innerHeight - popoverHeight - 16;
+      if (popoverTop < 16) popoverTop = 16;
+    } else {
+      if (placement === "below" && popoverTop + popoverHeight > window.innerHeight - 16) {
+        popoverTop = rect.top > popoverHeight + 20
+          ? rect.top - popoverHeight - margin
+          : window.innerHeight - popoverHeight - 16;
+      } else if (placement === "above" && popoverTop < 16) {
+        popoverTop = window.innerHeight - rect.bottom > popoverHeight + 20
+          ? rect.bottom + margin
+          : 16;
       }
-    } else { // above
-      if (popoverTop < 16) {
-        if (window.innerHeight - rect.bottom > popoverHeight + 20) {
-          popoverTop = rect.bottom + margin;
-        } else {
-          popoverTop = 16;
-        }
-      }
     }
+
+    finalLeft = popoverLeft + scrollX;
+    finalTop = popoverTop + scrollY;
   }
-  const finalTop = popoverTop + scrollY;
 
   const popoverStyle: React.CSSProperties = {
     position: "absolute",
@@ -329,9 +348,7 @@ export const InspectorOverlay: React.FC<InspectorOverlayProps> = ({
     } else {
       labelTag = styles.tagName;
       labelClasses = styles.className
-        ? typeof styles.className === "string"
-          ? " " + styles.className.split(/\s+/).filter(Boolean).map(c => `.${c}`).join(" ")
-          : ""
+        ? " " + styles.className.split(/\s+/).filter(Boolean).map(c => `.${c}`).join(" ")
         : "";
     }
   }
@@ -401,7 +418,7 @@ export const InspectorOverlay: React.FC<InspectorOverlayProps> = ({
                 letterSpacing: "0.5px",
                 fontWeight: "bold"
               }}>
-                {mode === "grid" ? "GRID / LAYOUT" : "LUME v1.0"}
+                {mode === "grid" ? "GRID / LAYOUT" : "FDT v1.2.0"}
               </span>
               {interactive && onClose && (
                 <button

@@ -245,9 +245,13 @@ export function extractElementStyles(element: HTMLElement): ElementStyles {
     }
   }
 
+  const classNameStr = typeof element.className === "string" 
+    ? element.className 
+    : (element.className && (element.className as any).baseVal) || "";
+
   return {
     tagName: element.tagName.toLowerCase(),
-    className: element.className,
+    className: classNameStr,
     fontFamily,
     fontFamilyChain,
     fontSize: style.fontSize,
