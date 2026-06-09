@@ -35,6 +35,41 @@ const isTextElement = (el: HTMLElement): boolean => {
   }
   return false;
 };
+const isTransparentOverlay = (element: HTMLElement): boolean => {
+  // If it's our extension container, bypass it
+  const shadowHost = document.getElementById("accessibility-inspector-extension-root");
+  if (shadowHost && shadowHost.contains(element)) return true;
+
+  const style = window.getComputedStyle(element);
+  const bg = style.backgroundColor;
+  const isBgTransparent = bg === "transparent" || bg === "rgba(0, 0, 0, 0)" || bg.replace(/\s/g, "") === "rgba(0,0,0,0)";
+  
+  if (!isBgTransparent) return false;
+  
+  // If it has text content directly in its nodes (not just children)
+  let hasText = false;
+  for (let i = 0; i < element.childNodes.length; i++) {
+    const node = element.childNodes[i];
+    if (node.nodeType === 3 && node.textContent && node.textContent.trim().length > 0) {
+      hasText = true;
+      break;
+    }
+  }
+  if (hasText) return false;
+  
+  // Check tags
+  const tagName = element.tagName.toLowerCase();
+  if (["img", "input", "button", "canvas", "svg", "video", "iframe"].includes(tagName)) return false;
+  
+  // Check borders
+  const hasBorder = (parseFloat(style.borderTopWidth) > 0 && style.borderTopColor !== "transparent" && style.borderTopColor !== "rgba(0, 0, 0, 0)") ||
+                    (parseFloat(style.borderRightWidth) > 0 && style.borderRightColor !== "transparent" && style.borderRightColor !== "rgba(0, 0, 0, 0)") ||
+                    (parseFloat(style.borderBottomWidth) > 0 && style.borderBottomColor !== "transparent" && style.borderBottomColor !== "rgba(0, 0, 0, 0)") ||
+                    (parseFloat(style.borderLeftWidth) > 0 && style.borderLeftColor !== "transparent" && style.borderLeftColor !== "rgba(0, 0, 0, 0)");
+  if (hasBorder) return false;
+  
+  return true;
+};
 
 const isElementVisible = (el: HTMLElement, rect: DOMRect): boolean => {
   // 1. Viewport bounds check
@@ -53,12 +88,26 @@ const isElementVisible = (el: HTMLElement, rect: DOMRect): boolean => {
     return false;
   }
 
+  // Check if the element itself is tiny (likely hidden or sr-only)
+  const elRect = el.getBoundingClientRect();
+  if (elRect.width <= 2 || elRect.height <= 2) {
+    return false;
+  }
+
+  // Check if clip property visually hides it completely
+  if (style.clip && (style.clip.includes("rect(0px, 0px, 0px, 0px)") || style.clip.includes("rect(0, 0, 0, 0)"))) {
+    return false;
+  }
+
   // 3. Overflow occlusion check (climbing the DOM tree)
   let parent = el.parentElement;
   while (parent) {
     const parentStyle = window.getComputedStyle(parent);
     if (parentStyle.overflow !== "visible" && parentStyle.overflow !== "") {
       const parentRect = parent.getBoundingClientRect();
+      if (parentRect.width <= 2 || parentRect.height <= 2) {
+        return false;
+      }
       if (
         rect.bottom <= parentRect.top ||
         rect.top >= parentRect.bottom ||
@@ -70,6 +119,53 @@ const isElementVisible = (el: HTMLElement, rect: DOMRect): boolean => {
     }
     parent = parent.parentElement;
   }
+
+  // 4. Foreground occlusion check (is there another element covering it?)
+  // We check the center of the text rect
+  const centerX = rect.left + rect.width / 2;
+  const centerY = rect.top + rect.height / 2;
+  if (centerX >= 0 && centerY >= 0 && centerX <= window.innerWidth && centerY <= window.innerHeight) {
+    let topEl = document.elementFromPoint(centerX, centerY) as HTMLElement | null;
+    
+    // If we hit a transparent empty overlay, temporarily bypass it to find the real element underneath
+    const temporaryDisabledElements: HTMLElement[] = [];
+    const seenElements = new Set<HTMLElement>();
+    let attempts = 0;
+    while (topEl && isTransparentOverlay(topEl) && attempts < 10) {
+      if (seenElements.has(topEl)) {
+        break;
+      }
+      seenElements.add(topEl);
+      temporaryDisabledElements.push(topEl);
+      if (topEl.style) {
+        topEl.style.pointerEvents = "none";
+      }
+      topEl = document.elementFromPoint(centerX, centerY) as HTMLElement | null;
+      attempts++;
+    }
+    
+    // Restore pointer events style immediately after checking
+    temporaryDisabledElements.forEach(item => {
+      if (item.style) {
+        item.style.pointerEvents = "";
+      }
+    });
+
+    if (topEl) {
+      // Ignore our own extension root container
+      const extensionRoot = document.getElementById("accessibility-inspector-extension-root");
+      if (extensionRoot && (topEl === extensionRoot || extensionRoot.contains(topEl))) {
+        return false;
+      }
+
+      // If the topmost element is not our element, nor a descendant, nor an ancestor,
+      // it means some unrelated overlay element is covering it.
+      if (topEl !== el && !el.contains(topEl) && !topEl.contains(el)) {
+        return false;
+      }
+    }
+  }
+
   return true;
 };
 
@@ -105,7 +201,7 @@ export const ContentApp: React.FC = () => {
     // Initial center bottom placement
     setMenuPos({
       x: window.innerWidth / 2 - 250, // rough estimate of half width
-      y: window.innerHeight - 80
+      y: 24 // 24px from bottom
     });
     setIsMenuPositioned(true);
   }, []);
@@ -116,7 +212,7 @@ export const ContentApp: React.FC = () => {
     setIsDraggingMenu(true);
     menuDragOffset.current = {
       x: e.clientX - menuPos.x,
-      y: e.clientY - menuPos.y
+      y: (window.innerHeight - e.clientY) - menuPos.y
     };
   };
 
@@ -124,7 +220,7 @@ export const ContentApp: React.FC = () => {
     if (!isDraggingMenu) return;
     setMenuPos({
       x: Math.max(0, Math.min(window.innerWidth - 100, e.clientX - menuDragOffset.current.x)),
-      y: Math.max(0, Math.min(window.innerHeight - 50, e.clientY - menuDragOffset.current.y))
+      y: Math.max(0, Math.min(window.innerHeight - 50, (window.innerHeight - e.clientY) - menuDragOffset.current.y))
     });
   }, [isDraggingMenu]);
 
@@ -1149,8 +1245,8 @@ export const ContentApp: React.FC = () => {
             display: (isEyedropperActive || isScreenshotActive) ? "none" : "flex",
             position: "fixed",
             left: isMenuPositioned ? `${menuPos.x}px` : '50%',
-            top: isMenuPositioned ? `${menuPos.y}px` : 'auto',
-            bottom: isMenuPositioned ? 'auto' : '24px',
+            bottom: isMenuPositioned ? `${menuPos.y}px` : '24px',
+            top: 'auto',
             transform: isMenuPositioned ? 'none' : 'translateX(-50%)',
             zIndex: 2000000,
             cursor: isDraggingMenu ? "grabbing" : "grab"
