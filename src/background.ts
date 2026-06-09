@@ -31,9 +31,6 @@ chrome.action.onClicked.addListener((tab) => {
       }, () => {
         if (chrome.runtime.lastError) {
           console.error("Failed to inject content script:", chrome.runtime.lastError.message);
-        } else {
-          // After successful injection, toggle the UI
-          chrome.tabs.sendMessage(tab.id!, { action: "toggle-extension" });
         }
       });
     }

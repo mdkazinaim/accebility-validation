@@ -1,20 +1,24 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import { InspectorOverlay } from "./InspectorOverlay";
 import { FloatingPanel } from "./FloatingPanel";
+import { PaintCanvas } from "./PaintCanvas";
 import { ElementStyles, extractElementStyles, parseColor } from "./styleExtractor";
 import {
   MousePointer,
   Type,
   Palette,
   Image as ImageIcon,
-  Search,
   Layout,
   Power,
   Pipette,
   X,
   Copy,
   Check,
-  Grid
+  Grid,
+  PenTool,
+  Camera,
+  Monitor,
+  GripVertical
 } from "lucide-react";
 
 const isTextElement = (el: HTMLElement): boolean => {
@@ -70,9 +74,13 @@ const isElementVisible = (el: HTMLElement, rect: DOMRect): boolean => {
 };
 
 export const ContentApp: React.FC = () => {
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(true); // Default to open on initial injection
   const [isOpen, setIsOpen] = useState(false); // Overlay starts closed
   const [inspectorActive, setInspectorActive] = useState(false);
+  const [isEyedropperActive, setIsEyedropperActive] = useState(false);
+  const [paintActive, setPaintActive] = useState(false);
+  const [paintInitialAction, setPaintInitialAction] = useState<"area" | "full" | undefined>(undefined);
+  const [isScreenshotActive, setIsScreenshotActive] = useState(false);
   const [gridInspectorActive, setGridInspectorActive] = useState(false);
   const [hoveredElement, setHoveredElement] = useState<HTMLElement | null>(null);
   const [lockedItems, setLockedItems] = useState<{ element: HTMLElement; styles: ElementStyles }[]>([]);
@@ -86,6 +94,55 @@ export const ContentApp: React.FC = () => {
     segments: { value: string; bgColor: string }[];
   }[]>([]);
   const [hoveredTooltipId, setHoveredTooltipId] = useState<string | null>(null);
+
+  // Movable Menu State
+  const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
+  const [isMenuPositioned, setIsMenuPositioned] = useState(false);
+  const [isDraggingMenu, setIsDraggingMenu] = useState(false);
+  const menuDragOffset = useRef({ x: 0, y: 0 });
+
+  useEffect(() => {
+    // Initial center bottom placement
+    setMenuPos({
+      x: window.innerWidth / 2 - 250, // rough estimate of half width
+      y: window.innerHeight - 80
+    });
+    setIsMenuPositioned(true);
+  }, []);
+
+  const startDragMenu = (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('button') || target.tagName.toLowerCase() === 'input') return;
+    setIsDraggingMenu(true);
+    menuDragOffset.current = {
+      x: e.clientX - menuPos.x,
+      y: e.clientY - menuPos.y
+    };
+  };
+
+  const onDragMenu = useCallback((e: MouseEvent) => {
+    if (!isDraggingMenu) return;
+    setMenuPos({
+      x: Math.max(0, Math.min(window.innerWidth - 100, e.clientX - menuDragOffset.current.x)),
+      y: Math.max(0, Math.min(window.innerHeight - 50, e.clientY - menuDragOffset.current.y))
+    });
+  }, [isDraggingMenu]);
+
+  const endDragMenu = useCallback(() => setIsDraggingMenu(false), []);
+
+  useEffect(() => {
+    if (isDraggingMenu) {
+      window.addEventListener('mousemove', onDragMenu);
+      window.addEventListener('mouseup', endDragMenu);
+    } else {
+      window.removeEventListener('mousemove', onDragMenu);
+      window.removeEventListener('mouseup', endDragMenu);
+    }
+    return () => {
+      window.removeEventListener('mousemove', onDragMenu);
+      window.removeEventListener('mouseup', endDragMenu);
+    };
+  }, [isDraggingMenu, onDragMenu, endDragMenu]);
 
   // Text Inspector States
   const [textInspectorActive, setTextInspectorActive] = useState(false);
@@ -106,7 +163,6 @@ export const ContentApp: React.FC = () => {
       setActiveOverlayModes(new Set());
     }
   }, [isMenuOpen]);
-  const [isEyedropperActive, setIsEyedropperActive] = useState(false);
   const [selectedColor, setSelectedColorState] = useState<string>("");
   const [colorPickerHoveredElement, setColorPickerHoveredElement] = useState<HTMLElement | null>(null);
   const [colorPickerColorHex, setColorPickerColorHex] = useState<string | null>(null);
@@ -870,6 +926,7 @@ export const ContentApp: React.FC = () => {
       setIsEyedropperActive(false);
       setColorPickerHoveredElement(null);
       setColorPickerColorHex(null);
+      setPaintActive(false);
     }
   }, [isMenuOpen]);
 
@@ -886,6 +943,9 @@ export const ContentApp: React.FC = () => {
           {gridInspectorActive && hoveredElement && (
             <InspectorOverlay element={hoveredElement} mode="grid" />
           )}
+
+          {/* Paint / Annotation Canvas */}
+          {paintActive && <PaintCanvas onClose={() => { setPaintActive(false); setPaintInitialAction(undefined); setIsScreenshotActive(false); }} initialAction={paintInitialAction} onScreenshotModeChange={setIsScreenshotActive} />}
 
           {/* Selected Element Outlines - Persistent if selection locked */}
           {lockedItems.map((item, idx) => (
@@ -1083,8 +1143,19 @@ export const ContentApp: React.FC = () => {
 
       {isMenuOpen && (
         <div
-          style={{ display: isEyedropperActive ? "none" : "flex", transform: "translateX(-50%)" }}
-          className="fixed bottom-6 left-1/2 z-[2000000] flex flex-col items-center gap-2 pointer-events-none select-none"
+          id="main-extension-menu"
+          onMouseDown={startDragMenu}
+          style={{
+            display: (isEyedropperActive || isScreenshotActive) ? "none" : "flex",
+            position: "fixed",
+            left: isMenuPositioned ? `${menuPos.x}px` : '50%',
+            top: isMenuPositioned ? `${menuPos.y}px` : 'auto',
+            bottom: isMenuPositioned ? 'auto' : '24px',
+            transform: isMenuPositioned ? 'none' : 'translateX(-50%)',
+            zIndex: 2000000,
+            cursor: isDraggingMenu ? "grabbing" : "grab"
+          }}
+          className="flex flex-col items-center gap-2 pointer-events-none select-none"
         >
           {/* Detailed Properties Card */}
           {textInspectorActive && (() => {
@@ -1342,6 +1413,11 @@ export const ContentApp: React.FC = () => {
 
           {/* Main Toolbar Pill */}
           <div className="flex items-center gap-3 bg-slate-950/90 backdrop-blur-md border border-slate-800/80 px-3.5 py-1.5 rounded-xl shadow-2xl pointer-events-auto">
+            {/* Drag Handle */}
+            <div className="flex items-center justify-center text-slate-500 pr-2 border-r border-slate-800 cursor-grab hover:text-slate-300">
+              <GripVertical size={20} />
+            </div>
+
             {/* Group 1: Tools */}
             <div className="flex items-center gap-1.5 pr-2.5 border-r border-slate-800">
               {/* Mouse Inspector */}
@@ -1407,24 +1483,59 @@ export const ContentApp: React.FC = () => {
               </button>
             </div>
 
-            {/* Group 2: Sidebar Tabs */}
+            {/* Paint / Annotate & Screenshot Tools */}
             <div className="flex items-center gap-1.5 px-1 pr-2.5 border-r border-slate-800">
-              {/* Inspect tab */}
               <button
                 onClick={() => {
-                  setFocusedTab("inspect");
-                  setIsOpen(true);
+                  setPaintActive(prev => !prev);
+                  setPaintInitialAction(undefined);
+                  setInspectorActive(false);
+                  setGridInspectorActive(false);
+                  setTextInspectorActive(false);
                 }}
-                className={`flex flex-col items-center justify-center w-9 h-9 rounded-md cursor-pointer transition-all ${isOpen && focusedTab === "inspect"
-                  ? "bg-slate-800 text-blue-400 border border-slate-700"
+                className={`flex flex-col items-center justify-center w-9 h-9 rounded-md cursor-pointer transition-all ${paintActive && !paintInitialAction
+                  ? "bg-pink-600 text-white shadow-md"
                   : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
                   }`}
-                title="Inspect Elements (Key: I)"
+                title="Paint / Annotate"
               >
-                <Search className="w-3.5 h-3.5" />
-                <span className={`text-[8px] font-bold font-mono mt-0.5 ${isOpen && focusedTab === "inspect" ? "text-blue-300" : "text-slate-500"}`}>I</span>
+                <PenTool className="w-3.5 h-3.5" />
+                <span className={`text-[8px] font-bold font-mono mt-0.5 ${paintActive && !paintInitialAction ? "text-pink-200" : "text-slate-500"}`}>P</span>
               </button>
 
+              <button
+                onClick={() => {
+                  setPaintInitialAction("area");
+                  setPaintActive(true);
+                  setInspectorActive(false);
+                  setGridInspectorActive(false);
+                  setTextInspectorActive(false);
+                }}
+                className="flex flex-col items-center justify-center w-9 h-9 rounded-md cursor-pointer transition-all text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+                title="Area Screenshot"
+              >
+                <Camera className="w-3.5 h-3.5" />
+                <span className="text-[8px] font-bold font-mono mt-0.5 text-slate-500">S</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setPaintInitialAction("full");
+                  setPaintActive(true);
+                  setInspectorActive(false);
+                  setGridInspectorActive(false);
+                  setTextInspectorActive(false);
+                }}
+                className="flex flex-col items-center justify-center w-9 h-9 rounded-md cursor-pointer transition-all text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+                title="Full Screen Screenshot"
+              >
+                <Monitor className="w-3.5 h-3.5" />
+                <span className="text-[8px] font-bold font-mono mt-0.5 text-slate-500">F</span>
+              </button>
+            </div>
+
+            {/* Group 2: Sidebar Tabs */}
+            <div className="flex items-center gap-1.5 px-1 pr-2.5 border-r border-slate-800">
               {/* Colors tab */}
               <button
                 onClick={() => {
