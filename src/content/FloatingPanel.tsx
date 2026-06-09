@@ -9,7 +9,6 @@ import {
   Check,
   ExternalLink,
   ChevronRight,
-  Sparkles,
   Pipette
 } from "lucide-react";
 import { ElementStyles, parseColor } from "./styleExtractor";
@@ -47,6 +46,7 @@ interface ScannedImage {
   tagName: string;
   alt: string;
   dimensions: { width: number; height: number };
+  type: "image" | "video";
 }
 
 export const FloatingPanel: React.FC<FloatingPanelProps> = ({
@@ -96,8 +96,18 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
   const [scannedFamilies, setScannedFamilies] = useState<ScannedFont[]>([]);
   const [scannedSizes, setScannedSizes] = useState<ScannedFontSize[]>([]);
 
+  // Scanning overlay animations state
+  const [isScanningColors, setIsScanningColors] = useState(false);
+  const [isScanningFonts, setIsScanningFonts] = useState(false);
+  const [isScanningMedia, setIsScanningMedia] = useState(false);
+
+  // Images tab state
   // Images tab state
   const [scannedImages, setScannedImages] = useState<ScannedImage[]>([]);
+  const [downloadFormat, setDownloadFormat] = useState<"original" | "png" | "jpeg" | "webp">("original");
+  const [downloadQuality, setDownloadQuality] = useState<number>(1.0);
+  const [selectedMediaSrcs, setSelectedMediaSrcs] = useState<Set<string>>(new Set());
+  const [downloadingItems, setDownloadingItems] = useState<Record<string, boolean>>({});
 
   // Font highlighting state and refs
   const [highlightedFont, setHighlightedFont] = useState<string | null>(null);
@@ -447,17 +457,22 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
 
   // Scan and Extract every color from full DOM
   const handleExtractPalette = () => {
+    setIsScanningColors(true);
     const rawColors = scanPageColors();
     const hexPalette = extractPalette(rawColors);
     const cleanPalette = hexPalette.filter(Boolean);
-    setDominantPalette(cleanPalette);
-    if (cleanPalette.length > 0) {
-      setSelectedColor(cleanPalette[0]);
-    }
+    setTimeout(() => {
+      setDominantPalette(cleanPalette);
+      if (cleanPalette.length > 0) {
+        setSelectedColor(cleanPalette[0]);
+      }
+      setIsScanningColors(false);
+    }, 700);
   };
 
   // Scan page typography node-by-node
   const handleScanFonts = () => {
+    setIsScanningFonts(true);
     const familyMap: Record<string, number> = {};
     const sizeMap: Record<string, number> = {};
     const elements = Array.from(document.querySelectorAll("body, body *"));
@@ -498,34 +513,68 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
       .map(([size, count]) => ({ size, count }))
       .sort((a, b) => (parseFloat(b.size) || 0) - (parseFloat(a.size) || 0));
 
-    setScannedFamilies(families);
-    setScannedSizes(sizes);
+    setTimeout(() => {
+      setScannedFamilies(families);
+      setScannedSizes(sizes);
+      setIsScanningFonts(false);
+    }, 700);
   };
 
-  // Scan images
+  // Scan images and videos (media assets)
   const handleScanImages = () => {
-    const images: ScannedImage[] = [];
+    setIsScanningMedia(true);
+    const mediaList: ScannedImage[] = [];
     const srcSet = new Set<string>();
 
-    // Scan image elements
+    // 1. Scan video elements
+    const videoElements = Array.from(document.querySelectorAll("video"));
+    for (const vid of videoElements) {
+      let src = vid.src;
+      if (!src) {
+        const sources = vid.querySelectorAll("source");
+        for (const source of Array.from(sources)) {
+          if (source.src) {
+            src = source.src;
+            break;
+          }
+        }
+      }
+      
+      if (src && !src.startsWith("data:") && !srcSet.has(src)) {
+        srcSet.add(src);
+        mediaList.push({
+          src,
+          tagName: "video",
+          alt: vid.getAttribute("aria-label") || vid.title || "Video Element",
+          dimensions: {
+            width: vid.videoWidth || vid.clientWidth || 0,
+            height: vid.videoHeight || vid.clientHeight || 0,
+          },
+          type: "video"
+        });
+      }
+    }
+
+    // 2. Scan image elements
     const imgElements = Array.from(document.querySelectorAll("img"));
     for (const img of imgElements) {
       const src = img.src;
       if (src && !src.startsWith("data:") && !srcSet.has(src)) {
         srcSet.add(src);
-        images.push({
+        mediaList.push({
           src,
           tagName: "img",
           alt: img.alt || "No alternative text",
           dimensions: {
             width: img.naturalWidth || img.clientWidth || 0,
             height: img.naturalHeight || img.clientHeight || 0,
-          }
+          },
+          type: "image"
         });
       }
     }
 
-    // Scan element background images
+    // 3. Scan element background images
     const allElements = Array.from(document.querySelectorAll("body, body *"));
     const maxBgCheck = Math.min(allElements.length, 300);
     for (let i = 0; i < maxBgCheck; i++) {
@@ -537,14 +586,15 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
           const match = bgImg.match(/url\(['"]?(.*?)['"]?\)/);
           if (match && match[1] && !match[1].startsWith("data:") && !srcSet.has(match[1])) {
             srcSet.add(match[1]);
-            images.push({
+            mediaList.push({
               src: match[1],
               tagName: el.tagName.toLowerCase(),
               alt: "CSS Background Image",
               dimensions: {
                 width: el.clientWidth || 0,
                 height: el.clientHeight || 0,
-              }
+              },
+              type: "image"
             });
           }
         }
@@ -553,7 +603,117 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
       }
     }
 
-    setScannedImages(images);
+    setTimeout(() => {
+      setScannedImages(mediaList);
+      // Reset selection list on new scan
+      setSelectedMediaSrcs(new Set());
+      setIsScanningMedia(false);
+    }, 700);
+  };
+
+  const toggleSelectMedia = (src: string) => {
+    setSelectedMediaSrcs(prev => {
+      const next = new Set(prev);
+      if (next.has(src)) {
+        next.delete(src);
+      } else {
+        next.add(src);
+      }
+      return next;
+    });
+  };
+
+  const downloadMedia = async (src: string, type: "image" | "video", customFormat?: string, customQuality?: number) => {
+    setDownloadingItems(prev => ({ ...prev, [src]: true }));
+    try {
+      const response = await new Promise<{ success: boolean; base64?: string; contentType?: string; error?: string }>((resolve) => {
+        chrome.runtime.sendMessage({ action: "fetch-media", url: src }, resolve);
+      });
+
+      if (!response || !response.success || !response.base64) {
+        throw new Error(response?.error || "Failed to fetch media resource from background context");
+      }
+
+      const binary = atob(response.base64);
+      const len = binary.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      const mimeType = response.contentType || (type === "video" ? "video/mp4" : "image/png");
+      const blob = new Blob([bytes], { type: mimeType });
+      const blobUrl = URL.createObjectURL(blob);
+
+      const originalName = src.split("/").pop()?.split("?")[0] || (type === "video" ? "video.mp4" : "image.png");
+      const baseName = originalName.substring(0, originalName.lastIndexOf(".")) || originalName;
+
+      const targetFormat = customFormat || downloadFormat;
+      const targetQuality = customQuality !== undefined ? customQuality : downloadQuality;
+
+      if (type === "video" || targetFormat === "original") {
+        const a = document.createElement("a");
+        a.href = blobUrl;
+        a.download = originalName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(blobUrl);
+      } else {
+        const img = new window.Image();
+        img.src = blobUrl;
+        await new Promise((resolve, reject) => {
+          img.onload = resolve;
+          img.onerror = reject;
+        });
+
+        const canvas = document.createElement("canvas");
+        canvas.width = img.naturalWidth || img.width || 400;
+        canvas.height = img.naturalHeight || img.height || 300;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(img, 0, 0);
+          
+          let formatMime = "image/png";
+          let ext = ".png";
+          if (targetFormat === "jpeg") {
+            formatMime = "image/jpeg";
+            ext = ".jpg";
+            ctx.globalCompositeOperation = "destination-over";
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+          } else if (targetFormat === "webp") {
+            formatMime = "image/webp";
+            ext = ".webp";
+          }
+
+          const exportDataUrl = canvas.toDataURL(formatMime, targetQuality);
+          const a = document.createElement("a");
+          a.href = exportDataUrl;
+          a.download = `${baseName}${ext}`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+        }
+        URL.revokeObjectURL(blobUrl);
+      }
+    } catch (err) {
+      console.error("Error downloading media:", err);
+      alert(`Download failed for: ${src}\nError: ${err instanceof Error ? err.message : err}`);
+    } finally {
+      setDownloadingItems(prev => ({ ...prev, [src]: false }));
+    }
+  };
+
+  const downloadSelectedMedia = async () => {
+    const itemsToDownload = scannedImages.filter(item => selectedMediaSrcs.has(item.src));
+    if (itemsToDownload.length === 0) {
+      alert("No media items selected.");
+      return;
+    }
+
+    for (const item of itemsToDownload) {
+      await downloadMedia(item.src, item.type);
+    }
   };
 
   // Harmony generators
@@ -612,13 +772,17 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
           alignItems: "center",
           justifyContent: "center"
         }}
-        className={`fixed z-[2000000] bg-slate-950/95 text-white shadow-2xl hover:bg-slate-900 border border-slate-800 cursor-grab active:cursor-grabbing group ${
+        className={`fixed z-[2000000] bg-slate-950/95 text-white shadow-2xl hover:bg-slate-900 cursor-grab active:cursor-grabbing group border-0 ${
           dockEdge === "left"
-            ? "rounded-r-2xl border-l-0"
-            : "rounded-l-2xl border-r-0"
+            ? "rounded-r-lg"
+            : "rounded-l-lg"
         }`}
       >
-        <Sparkles className="w-5 h-5 text-blue-400 group-hover:scale-110 transition-transform pointer-events-none" />
+        <img
+          src={chrome.runtime.getURL("layers.png")}
+          className="w-5 h-5 object-contain group-hover:scale-110 transition-transform pointer-events-none"
+          alt="Logo"
+        />
       </button>
 
       {/* Main Panel */}
@@ -633,7 +797,7 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
           opacity: isMinimized || hidden ? 0 : 1,
           pointerEvents: isMinimized || hidden ? "none" : "auto",
         }}
-        className="fixed w-96 bg-slate-950/95 backdrop-blur-md text-slate-100 rounded-2xl border border-slate-800 shadow-2xl z-[2000000] flex flex-col overflow-hidden font-sans"
+        className="fixed w-96 bg-slate-950/95 backdrop-blur-md text-slate-100 rounded-lg border border-slate-800 shadow-2xl z-[2000000] flex flex-col overflow-hidden font-sans"
       >
 
       {/* Header Panel */}
@@ -642,10 +806,13 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
         className="p-4 border-b border-slate-900 bg-slate-900/30 flex items-center justify-between cursor-move"
       >
         <div className="flex items-center gap-2 pointer-events-none">
-          <Sparkles className="w-5 h-5 text-blue-500 animate-pulse" />
+          <img
+            src={chrome.runtime.getURL("layers.png")}
+            className="w-5 h-5 object-contain"
+            alt="Logo"
+          />
           <div>
-            <h2 className="text-sm font-bold tracking-wider uppercase text-white">Visual Inspector</h2>
-            <p className="text-[10px] text-slate-400">Design & Accessibility Scanner</p>
+            <h2 className="text-sm font-bold tracking-wider uppercase text-white">Frontend Dev Tool</h2>
           </div>
         </div>
         <div className="flex items-center gap-1.5">
@@ -732,12 +899,29 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
             }`}
         >
           <Image className="w-4 h-4" />
-          <span>Images</span>
+          <span>Media</span>
         </button>
       </div>
 
       {/* Tab Panels */}
-      <div className="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-4">
+      <div className="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-4 relative">
+        {(isScanningColors || isScanningFonts || isScanningMedia) && (
+          <div className="absolute inset-0 bg-slate-950/45 backdrop-blur-[0.5px] z-[50] pointer-events-none overflow-hidden rounded-b-lg">
+            {/* Elegant sweep scanline */}
+            <div className="w-full h-1 bg-gradient-to-r from-transparent via-blue-500/80 to-transparent shadow-[0_0_12px_rgba(59,130,246,1)] animate-sweep absolute left-0" />
+            
+            {/* Glowing tech scanner HUD info */}
+            <div className="absolute inset-0 flex items-center justify-center bg-slate-950/40">
+              <div className="flex flex-col items-center gap-2 bg-slate-900/90 px-4 py-3 rounded-xl border border-slate-800/80 shadow-2xl backdrop-blur-md animate-pulse">
+                <svg className="w-6 h-6 animate-spin text-blue-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                <span className="text-[10px] uppercase tracking-widest text-slate-300 font-bold">Scanning Page...</span>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* INSPECT ELEMENT PANEL */}
         {activeTab === "inspect" && (
@@ -971,9 +1155,20 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
               </h3>
               <button
                 onClick={handleExtractPalette}
-                className="text-[10px] px-2 py-1 bg-slate-900 hover:bg-slate-850 text-blue-400 border border-slate-800 rounded font-semibold cursor-pointer transition-all"
+                disabled={isScanningColors}
+                className="text-[10px] px-2 py-1 bg-slate-900 hover:bg-slate-850 text-blue-400 border border-slate-800 rounded font-semibold cursor-pointer transition-all disabled:opacity-50 flex items-center gap-1"
               >
-                Rescan Page
+                {isScanningColors ? (
+                  <>
+                    <svg className="w-3 h-3 animate-spin text-blue-450" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    <span>Scanning...</span>
+                  </>
+                ) : (
+                  "Rescan Page"
+                )}
               </button>
             </div>
 
@@ -988,7 +1183,7 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
                 )}
               </div>
               {dominantPalette.length > 0 ? (
-                <div className="max-h-48 overflow-y-auto pr-1" style={{ scrollbarWidth: "thin", scrollbarColor: "#334155 transparent" }}>
+                <div className="pr-1">
                   <div className="grid grid-cols-5 gap-1.5">
                     {dominantPalette.map((color, i) => (
                       <div
@@ -1077,9 +1272,20 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
                 </button>
                 <button
                   onClick={handleScanFonts}
-                  className="text-[10px] px-2 py-1 bg-slate-900 hover:bg-slate-850 text-blue-400 border border-slate-800 rounded font-semibold cursor-pointer transition-all"
+                  disabled={isScanningFonts}
+                  className="text-[10px] px-2 py-1 bg-slate-900 hover:bg-slate-850 text-blue-400 border border-slate-800 rounded font-semibold cursor-pointer transition-all disabled:opacity-50 flex items-center gap-1"
                 >
-                  Rescan Page
+                  {isScanningFonts ? (
+                    <>
+                      <svg className="w-3 h-3 animate-spin text-blue-450" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      <span>Scanning...</span>
+                    </>
+                  ) : (
+                    "Rescan Page"
+                  )}
                 </button>
               </div>
             </div>
@@ -1098,7 +1304,7 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
                 )}
               </div>
               {scannedFamilies.length > 0 ? (
-                <div className="space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar pr-0.5">
+                <div className="space-y-1.5 pr-0.5">
                   {scannedFamilies.map((font, idx) => {
                     const isHighlighted = highlightedFont === font.family;
                     return (
@@ -1142,7 +1348,7 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
             <div className="space-y-2 pt-2">
               <div className="text-[10px] text-slate-500 font-bold uppercase">Detected Font Sizes</div>
               {scannedSizes.length > 0 ? (
-                <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto custom-scrollbar pr-0.5">
+                <div className="grid grid-cols-2 gap-2 pr-0.5">
                   {scannedSizes.slice(0, 14).map((size, idx) => {
                     const isHighlighted = highlightedSize === size.size;
                     return (
@@ -1180,69 +1386,206 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
           </div>
         )}
 
-        {/* IMAGES PANEL */}
+        {/* MEDIA PANEL (IMAGES & VIDEOS) */}
         {activeTab === "images" && (
           <div className="space-y-4 animate-fade-in">
             <div className="flex items-center justify-between border-b border-slate-900 pb-2">
               <h3 className="text-xs font-bold tracking-wider uppercase text-slate-400">
-                Image Asset Extractor
+                Media Asset Extractor
               </h3>
               <button
                 onClick={handleScanImages}
-                className="text-[10px] px-2 py-1 bg-slate-900 hover:bg-slate-850 text-blue-400 border border-slate-800 rounded font-semibold cursor-pointer transition-all"
+                disabled={isScanningMedia}
+                className="text-[10px] px-2 py-1 bg-slate-900 hover:bg-slate-850 text-blue-400 border border-slate-800 rounded font-semibold cursor-pointer transition-all disabled:opacity-50 flex items-center gap-1"
               >
-                Rescan Page
+                {isScanningMedia ? (
+                  <>
+                    <svg className="w-3 h-3 animate-spin text-blue-450" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    <span>Scanning...</span>
+                  </>
+                ) : (
+                  "Rescan Page"
+                )}
               </button>
             </div>
 
-            {/* Scanned Image Grid */}
-            {scannedImages.length > 0 ? (
-              <div className="grid grid-cols-2 gap-3 max-h-[400px] overflow-y-auto custom-scrollbar pr-1">
-                {scannedImages.map((img, idx) => (
-                  <div
-                    key={idx}
-                    className="bg-slate-900/50 rounded-xl border border-slate-850 overflow-hidden flex flex-col hover:border-slate-800 transition-all group relative"
+            {/* Download Settings (Format, Quality, Bulk Action) */}
+            {scannedImages.length > 0 && (
+              <div className="py-3 rounded-xl space-y-3">
+                {/* Row 1: Heading */}
+                <div className="text-[10px] text-slate-300 font-bold uppercase tracking-wider">
+                  Download Options
+                </div>
+
+                {/* Row 2: Action Buttons */}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      if (selectedMediaSrcs.size === scannedImages.length) {
+                        setSelectedMediaSrcs(new Set());
+                      } else {
+                        setSelectedMediaSrcs(new Set(scannedImages.map(item => item.src)));
+                      }
+                    }}
+                    className="flex-1 text-[10px] text-slate-200 hover:text-white bg-slate-950 border border-slate-800 hover:border-slate-700 py-1.5 rounded-lg cursor-pointer transition-all font-semibold text-center"
                   >
-                    {/* Thumbnail Frame */}
-                    <div className="aspect-video bg-slate-950 flex items-center justify-center overflow-hidden border-b border-slate-900 relative">
-                      <img
-                        src={img.src}
-                        alt={img.alt}
-                        className="max-w-full max-h-full object-contain group-hover:scale-105 transition-transform duration-300"
-                        onError={(e) => {
-                          (e.target as HTMLElement).style.display = "none";
-                        }}
-                      />
-                      {/* Hover Overlay Button to Open Image */}
-                      <a
-                        href={img.src}
-                        target="_blank"
-                        rel="noreferrer"
-                        title="Open image in new tab"
-                        className="absolute inset-0 bg-slate-950/70 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity duration-200 cursor-pointer"
+                    {selectedMediaSrcs.size === scannedImages.length ? "Deselect All" : "Select All"}
+                  </button>
+                  <button
+                    onClick={downloadSelectedMedia}
+                    disabled={selectedMediaSrcs.size === 0}
+                    className={`flex-1 text-[10px] py-1.5 rounded-lg font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                      selectedMediaSrcs.size > 0
+                        ? "bg-blue-600 hover:bg-blue-700 text-white border border-blue-500 shadow-md shadow-blue-500/10"
+                        : "bg-slate-900/40 border border-slate-850 text-slate-500 cursor-not-allowed"
+                    }`}
+                  >
+                    Download Selected ({selectedMediaSrcs.size})
+                  </button>
+                </div>
+
+                {/* Row 3: Format & Quality Controls */}
+                <div className="grid grid-cols-2 gap-2 text-[10px] border-t border-slate-900/50 pt-2.5">
+                  {/* Format selector */}
+                  <div className="space-y-1">
+                    <label className="text-[9px] text-slate-500 font-semibold uppercase pb-1">Convert Format</label>
+                    <select
+                      value={downloadFormat}
+                      onChange={(e) => setDownloadFormat(e.target.value as any)}
+                      className="w-full bg-slate-950 border border-slate-800 text-slate-300 rounded px-1.5 py-1 outline-none cursor-pointer text-[10px]"
+                    >
+                      <option value="original">Original Format</option>
+                      <option value="png">PNG Format</option>
+                      <option value="jpeg">JPEG Format</option>
+                      <option value="webp">WebP Format</option>
+                    </select>
+                  </div>
+
+                  {/* Quality selector */}
+                  <div className="space-y-1">
+                    <label className="text-[9px] text-slate-500 font-semibold uppercase pb-1">Quality Preset</label>
+                    <select
+                      value={downloadQuality}
+                      onChange={(e) => setDownloadQuality(parseFloat(e.target.value))}
+                      disabled={downloadFormat === "original"}
+                      className={`w-full bg-slate-950 border border-slate-800 text-slate-300 rounded px-1.5 py-1 outline-none cursor-pointer text-[10px] ${
+                        downloadFormat === "original" ? "opacity-40 cursor-not-allowed" : ""
+                      }`}
+                    >
+                      <option value="1.0">High (100% Quality)</option>
+                      <option value="0.7">Medium (70% Quality)</option>
+                      <option value="0.4">Low (40% Quality)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Scanned Media Grid */}
+            {scannedImages.length > 0 ? (
+              <div className="grid grid-cols-1 gap-3 pr-1">
+                {scannedImages.map((img, idx) => {
+                  const isSelected = selectedMediaSrcs.has(img.src);
+                  const isDownloading = downloadingItems[img.src];
+                  return (
+                    <div
+                      key={idx}
+                      className={`bg-slate-900/50 rounded-xl overflow-hidden flex flex-col transition-all group relative ${
+                        isSelected ? "ring-2 ring-blue-500 bg-slate-900/70" : ""
+                      }`}
+                    >
+                      {/* Selection Checkbox (Hover-controlled) */}
+                      <button
+                        onClick={() => toggleSelectMedia(img.src)}
+                        className={`absolute top-2 left-2 z-30 w-5 h-5 rounded border flex items-center justify-center cursor-pointer transition-all duration-200 ${
+                          isSelected
+                            ? "bg-blue-600 border-blue-500 text-white opacity-100 scale-100"
+                            : "bg-slate-950/80 border-slate-700 hover:border-slate-500 text-transparent opacity-0 scale-95 group-hover:opacity-100 group-hover:scale-100"
+                        }`}
                       >
-                        <ExternalLink className="w-5 h-5 text-blue-400" />
-                      </a>
-                    </div>
-                    {/* Image Stats */}
-                    <div className="p-2 space-y-0.5 text-[9px] font-mono">
-                      <div className="text-slate-400 truncate" title={img.src}>
-                        {img.src.split("/").pop()}
+                        <Check className="w-3 h-3 stroke-[3]" />
+                      </button>
+
+                      {/* Thumbnail Frame */}
+                      <div className="aspect-video bg-slate-950 flex items-center justify-center overflow-hidden border-b border-slate-900 relative">
+                        {img.type === "video" ? (
+                          <video
+                            src={img.src}
+                            className="max-w-full max-h-full object-contain"
+                            preload="metadata"
+                            muted
+                            playsInline
+                            onMouseEnter={(e) => {
+                              (e.target as HTMLVideoElement).play().catch(() => {});
+                            }}
+                            onMouseLeave={(e) => {
+                              (e.target as HTMLVideoElement).pause();
+                            }}
+                          />
+                        ) : (
+                          <img
+                            src={img.src}
+                            alt={img.alt}
+                            className="max-w-full max-h-full object-contain group-hover:scale-105 transition-transform duration-300"
+                            onError={(e) => {
+                              (e.target as HTMLElement).style.display = "none";
+                            }}
+                          />
+                        )}
+                        {/* Hover Overlay Buttons */}
+                        <div className="absolute inset-0 bg-slate-950/70 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-3 transition-opacity duration-200">
+                          <a
+                            href={img.src}
+                            target="_blank"
+                            rel="noreferrer"
+                            title="Open in new tab"
+                            className="p-2 rounded-lg bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-300 hover:text-white transition-all cursor-pointer"
+                          >
+                            <ExternalLink className="w-4 h-4" />
+                          </a>
+                          <button
+                            onClick={() => downloadMedia(img.src, img.type)}
+                            disabled={isDownloading}
+                            title={isDownloading ? "Downloading..." : "Download file"}
+                            className="p-2 rounded-lg bg-blue-600 border border-blue-500 hover:bg-blue-500 text-white transition-all cursor-pointer disabled:opacity-50"
+                          >
+                            {isDownloading ? (
+                              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                            ) : (
+                              <svg className="w-4 h-4 fill-none stroke-current" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                <polyline points="7 10 12 15 17 10" />
+                                <line x1="12" y1="15" x2="12" y2="3" />
+                              </svg>
+                            )}
+                          </button>
+                        </div>
                       </div>
-                      <div className="text-slate-500 flex justify-between">
-                        <span>Tag: &lt;{img.tagName}&gt;</span>
-                        <span className="font-bold text-slate-400">
-                          {img.dimensions.width}×{img.dimensions.height}
+
+                      {/* Media Stats */}
+                      <div className="p-2 text-[9px] font-mono flex items-center justify-between text-slate-400">
+                        <span className="truncate max-w-[70%] font-semibold text-slate-300" title={img.src}>
+                          {img.src.split("/").pop()?.split("?")[0] || img.type}
+                        </span>
+                        <span className="font-semibold text-slate-500 shrink-0 pl-2">
+                          {img.dimensions.width > 0 && img.dimensions.height > 0
+                            ? `${img.dimensions.width}×${img.dimensions.height}`
+                            : img.type === "video"
+                            ? "Video"
+                            : "Auto"}
                         </span>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <div className="h-40 flex flex-col items-center justify-center text-slate-500">
                 <Image className="w-8 h-8 text-slate-850 mb-1" />
-                <span className="text-xs">No image assets located</span>
+                <span className="text-xs">No media assets located</span>
               </div>
             )}
           </div>

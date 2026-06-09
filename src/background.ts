@@ -13,6 +13,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ dataUrl });
     });
     return true; // Keep channel open for async response
+  } else if (message.action === "fetch-media") {
+    fetch(message.url)
+      .then(response => {
+        const contentType = response.headers.get("content-type") || "";
+        return response.arrayBuffer().then(buffer => ({ contentType, buffer }));
+      })
+      .then(({ contentType, buffer }) => {
+        const bytes = new Uint8Array(buffer);
+        let binary = "";
+        const len = bytes.byteLength;
+        // Process in chunks to avoid call stack size exceeded errors on large files
+        const chunkSize = 8192;
+        for (let i = 0; i < len; i += chunkSize) {
+          const chunk = bytes.subarray(i, i + chunkSize);
+          binary += String.fromCharCode.apply(null, chunk as any);
+        }
+        const base64 = btoa(binary);
+        sendResponse({ success: true, base64, contentType });
+      })
+      .catch(err => {
+        sendResponse({ success: false, error: err.toString() });
+      });
+    return true; // Keep channel open for async response
   }
   return true;
 });

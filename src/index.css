@@ -164,3 +164,57 @@
     box-shadow: 0 0 0 4px var(--light-red);
   }
 }
+
+/* =======================
+   🖌️ Custom Scrollbar
+========================== */
+/* Webkit browsers (Chrome, Safari, Edge) */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.5); /* High contrast slate grey */
+  border-radius: 9999px;
+  border: 1.5px solid transparent; /* Gives a nice gap around track */
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(59, 130, 246, 0.85); /* Bright high-fidelity accent blue */
+  border: 1.5px solid transparent;
+  background-clip: padding-box;
+}
+
+/* Firefox compatibility */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.5) transparent;
+}
+
+/* 📡 Radar Scanning Visual Effect */
+@keyframes sweep {
+  0% {
+    transform: translateY(0);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(300px);
+    opacity: 0;
+  }
+}
+
+.animate-sweep {
+  animation: sweep 1.5s infinite cubic-bezier(0.4, 0, 0.2, 1);
+}
