@@ -178,6 +178,7 @@ export const ContentApp: React.FC = () => {
   const [paintInitialAction, setPaintInitialAction] = useState<"area" | "full" | undefined>(undefined);
   const [isScreenshotActive, setIsScreenshotActive] = useState(false);
   const [gridInspectorActive, setGridInspectorActive] = useState(false);
+  const [showGridHoverBox, setShowGridHoverBox] = useState(true);
   const [hoveredElement, setHoveredElement] = useState<HTMLElement | null>(null);
   const [lockedItems, setLockedItems] = useState<{ element: HTMLElement; styles: ElementStyles }[]>([]);
   const [focusedTab, setFocusedTab] = useState<"inspect" | "colors" | "fonts" | "images">("inspect");
@@ -1036,7 +1037,7 @@ export const ContentApp: React.FC = () => {
           )}
 
           {/* Grid Inspector Overlay */}
-          {gridInspectorActive && hoveredElement && (
+          {gridInspectorActive && hoveredElement && showGridHoverBox && (
             <InspectorOverlay element={hoveredElement} mode="grid" />
           )}
 
@@ -1507,6 +1508,7 @@ export const ContentApp: React.FC = () => {
             </div>
           )}
 
+
           {/* Main Toolbar Pill */}
           <div className="flex items-center gap-3 bg-slate-950/90 backdrop-blur-md border border-slate-800/80 px-3.5 py-1.5 rounded-xl shadow-2xl pointer-events-auto">
             {/* Drag Handle */}
@@ -1533,22 +1535,42 @@ export const ContentApp: React.FC = () => {
                 <span className={`text-[8px] font-bold font-mono mt-0.5 ${inspectorActive ? "text-blue-200" : "text-slate-500"}`}>M</span>
               </button>
 
-              {/* Grid/Layout Inspector Toggle */}
-              <button
-                onClick={() => {
-                  setGridInspectorActive(!gridInspectorActive);
-                  setInspectorActive(false);
-                  setTextInspectorActive(false);
-                }}
-                className={`flex flex-col items-center justify-center w-9 h-9 rounded-md cursor-pointer transition-all ${gridInspectorActive
-                  ? "bg-purple-600 text-white shadow-md"
-                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
-                  }`}
-                title="Grid/Layout Inspector (Key: L)"
-              >
-                <Grid className="w-3.5 h-3.5" />
-                <span className={`text-[8px] font-bold font-mono mt-0.5 ${gridInspectorActive ? "text-purple-200" : "text-slate-500"}`}>L</span>
-              </button>
+              {/* Grid/Layout Inspector Toggle — with hover box toggle pill above it */}
+              <div className="relative flex flex-col items-center">
+                {/* Hover Box toggle pill — floats above the grid button when active */}
+                {gridInspectorActive && (
+                  <button
+                    onClick={() => setShowGridHoverBox(!showGridHoverBox)}
+                    className={`absolute -top-10 left-1/2 -translate-x-1/2 whitespace-nowrap flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold transition-all shadow-lg border cursor-pointer backdrop-blur-md ${
+                      showGridHoverBox
+                        ? "bg-purple-600/90 border-purple-400/60 text-white hover:bg-purple-700"
+                        : "bg-slate-950/90 border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600"
+                    }`}
+                    title={showGridHoverBox ? "Hide hover info box" : "Show hover info box"}
+                  >
+                    <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                      showGridHoverBox ? "bg-white animate-pulse" : "bg-slate-600"
+                    }`} />
+                    <Grid className="w-3 h-3" />
+                    <span>Hover Box: {showGridHoverBox ? "ON" : "OFF"}</span>
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    setGridInspectorActive(!gridInspectorActive);
+                    setInspectorActive(false);
+                    setTextInspectorActive(false);
+                  }}
+                  className={`flex flex-col items-center justify-center w-9 h-9 rounded-md cursor-pointer transition-all ${gridInspectorActive
+                    ? "bg-purple-600 text-white shadow-md"
+                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+                    }`}
+                  title="Grid/Layout Inspector (Key: L)"
+                >
+                  <Grid className="w-3.5 h-3.5" />
+                  <span className={`text-[8px] font-bold font-mono mt-0.5 ${gridInspectorActive ? "text-purple-200" : "text-slate-500"}`}>L</span>
+                </button>
+              </div>
 
               {/* Eyedropper Color Picker */}
               {"EyeDropper" in window && (
