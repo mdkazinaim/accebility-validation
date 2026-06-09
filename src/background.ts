@@ -19,9 +19,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // Handle extension toolbar icon click to toggle the bottom menu on page
 chrome.action.onClicked.addListener((tab) => {
-  if (tab.id) {
-    chrome.tabs.sendMessage(tab.id, { action: "toggle-extension" }).catch((err) => {
-      console.warn("Could not send toggle-extension message to tab:", err);
-    });
-  }
+  if (!tab.id) return;
+
+  // Try to send a message first to see if the content script is already loaded
+  chrome.tabs.sendMessage(tab.id, { action: "toggle-extension" }, () => {
+    if (chrome.runtime.lastError) {
+      // Content script is not active/loaded on this tab, inject it dynamically
+      chrome.scripting.executeScript({
+        target: { tabId: tab.id! },
+        files: ["assets/content.js"]
+      }, () => {
+        if (chrome.runtime.lastError) {
+          console.error("Failed to inject content script:", chrome.runtime.lastError.message);
+        } else {
+          // After successful injection, toggle the UI
+          chrome.tabs.sendMessage(tab.id!, { action: "toggle-extension" });
+        }
+      });
+    }
+  });
 });

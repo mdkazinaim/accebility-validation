@@ -678,16 +678,18 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
         </div>
       </div>
 
-      {/* Main Controls - Hover Inspector State (Always Visible) */}
+      {/* Main Controls - Element Inspector State (Always Visible) */}
       <div className="px-4 py-3 bg-slate-900/50 border-b border-slate-900 flex items-center justify-between gap-3">
         <div className="flex flex-col">
-          <span className="text-xs font-semibold text-slate-300">Hover Inspector</span>
+          <span className="text-xs font-semibold text-slate-300">Element Inspector</span>
           <span className="text-[10px] text-slate-500">
             {inspectorActive ? "Click element to inspect properties" : "Activate to hover and inspect styles"}
           </span>
         </div>
         <button
-          onClick={() => setInspectorActive(!inspectorActive)}
+          onClick={() => {
+            setInspectorActive(!inspectorActive);
+          }}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-md ${inspectorActive
               ? "bg-blue-600 hover:bg-blue-700 text-white ring-2 ring-blue-400/20"
               : "bg-slate-800 hover:bg-slate-700 text-slate-300"
@@ -828,6 +830,33 @@ export const FloatingPanel: React.FC<FloatingPanelProps> = ({
                     <div className="text-[10px] text-slate-500 font-semibold uppercase">Font Family Chain</div>
                     <div className="text-white break-words text-[11px] font-mono mt-0.5">
                       {lockedStyles.fontFamily}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Layout & Spacing Details */}
+              <div className="bg-slate-900/50 p-3 rounded-xl border border-slate-800 space-y-2">
+                <h3 className="text-xs font-bold tracking-wider uppercase text-slate-400 border-b border-slate-800 pb-1">
+                  Layout & Spacing
+                </h3>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <div className="text-[10px] text-slate-500 font-semibold uppercase">Padding</div>
+                    <div className="text-white font-mono">{lockedStyles.padding}px</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-slate-500 font-semibold uppercase">Margin</div>
+                    <div className="text-white font-mono">{lockedStyles.margin}px</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-slate-500 font-semibold uppercase">Gap</div>
+                    <div className="text-white font-mono">{lockedStyles.gap || "normal"}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-slate-500 font-semibold uppercase">Roundness</div>
+                    <div className="text-white font-mono truncate" title={lockedStyles.borderRadius}>
+                      {lockedStyles.borderRadius || "0px"}
                     </div>
                   </div>
                 </div>

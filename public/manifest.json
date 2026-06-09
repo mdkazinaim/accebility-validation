@@ -19,13 +19,6 @@
     "service_worker": "assets/background.js",
     "type": "module"
   },
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["assets/content.js"],
-      "run_at": "document_end"
-    }
-  ],
   "icons": {
     "16": "layers.png",
     "48": "layers.png",
@@ -33,8 +26,12 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["assets/popup.css"],
-      "matches": ["<all_urls>"]
+      "resources": [
+        "assets/popup.css"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
     }
   ]
 }

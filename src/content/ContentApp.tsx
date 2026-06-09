@@ -13,7 +13,8 @@ import {
   Pipette,
   X,
   Copy,
-  Check
+  Check,
+  Grid
 } from "lucide-react";
 
 const isTextElement = (el: HTMLElement): boolean => {
@@ -72,6 +73,7 @@ export const ContentApp: React.FC = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isOpen, setIsOpen] = useState(false); // Overlay starts closed
   const [inspectorActive, setInspectorActive] = useState(false);
+  const [gridInspectorActive, setGridInspectorActive] = useState(false);
   const [hoveredElement, setHoveredElement] = useState<HTMLElement | null>(null);
   const [lockedItems, setLockedItems] = useState<{ element: HTMLElement; styles: ElementStyles }[]>([]);
   const [focusedTab, setFocusedTab] = useState<"inspect" | "colors" | "fonts" | "images">("inspect");
@@ -92,6 +94,18 @@ export const ContentApp: React.FC = () => {
   const [selectedTextElements, setSelectedTextElements] = useState<{ id: string; element: HTMLElement; styles: ElementStyles; textContent: string }[]>([]);
   const [activeSelectedTextId, setActiveSelectedTextId] = useState<string | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  // Automatically clear all inspection states when the extension menu is closed
+  useEffect(() => {
+    if (!isMenuOpen) {
+      setInspectorActive(false);
+      setGridInspectorActive(false);
+      setTextInspectorActive(false);
+      setIsOpen(false);
+      setShowContrastTooltips(false);
+      setActiveOverlayModes(new Set());
+    }
+  }, [isMenuOpen]);
   const [isEyedropperActive, setIsEyedropperActive] = useState(false);
   const [selectedColor, setSelectedColorState] = useState<string>("");
   const [colorPickerHoveredElement, setColorPickerHoveredElement] = useState<HTMLElement | null>(null);
@@ -166,13 +180,14 @@ export const ContentApp: React.FC = () => {
       const action = message.action;
 
       if (action === "query-status") {
-        sendResponse({ inspectorActive, isOpen, isMenuOpen });
+        sendResponse({ inspectorActive, gridInspectorActive, isOpen, isMenuOpen });
       } else if (action === "toggle-extension") {
         const next = !isMenuOpen;
         setIsMenuOpen(next);
         if (!next) {
           setIsOpen(false);
           setInspectorActive(false);
+          setGridInspectorActive(false);
           setTextInspectorActive(false);
           setShowContrastTooltips(false);
           setActiveOverlayModes(new Set());
@@ -181,8 +196,16 @@ export const ContentApp: React.FC = () => {
       } else if (action === "toggle-inspector") {
         const nextState = !inspectorActive;
         setInspectorActive(nextState);
+        setGridInspectorActive(false);
         if (nextState) setHoveredElement(null);
         sendResponse({ inspectorActive: nextState });
+      } else if (action === "toggle-grid-inspector") {
+        const nextState = !gridInspectorActive;
+        setGridInspectorActive(nextState);
+        setInspectorActive(false);
+        setTextInspectorActive(false);
+        if (nextState) setHoveredElement(null);
+        sendResponse({ gridInspectorActive: nextState });
       } else if (action === "activate-eyedropper") {
         triggerNativeEyeDropper();
         sendResponse({ status: "eyedropper-triggered" });
@@ -212,7 +235,7 @@ export const ContentApp: React.FC = () => {
     return () => {
       chrome.runtime.onMessage.removeListener(handleMessage);
     };
-  }, [inspectorActive, isOpen, isMenuOpen]);
+  }, [inspectorActive, gridInspectorActive, isOpen, isMenuOpen]);
 
   // DOM Color Picker mode inside content script
   const triggerNativeEyeDropper = () => {
@@ -348,11 +371,11 @@ export const ContentApp: React.FC = () => {
     };
   }, [isEyedropperActive]);
 
-  // Click handler for DOM Color Picker
+  // Click/mouse handler for DOM Color Picker
   useEffect(() => {
     if (!isEyedropperActive) return;
 
-    const handleClick = (e: MouseEvent) => {
+    const handleEyedropperInteraction = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       if (!target) return;
 
@@ -361,21 +384,28 @@ export const ContentApp: React.FC = () => {
 
       e.preventDefault();
       e.stopPropagation();
+      e.stopImmediatePropagation();
 
-      if (colorPickerColorHex) {
-        setSelectedColor(colorPickerColorHex);
-        setIsOpen(true);
-        setFocusedTab("colors");
+      if (e.type === "click") {
+        if (colorPickerColorHex) {
+          setSelectedColor(colorPickerColorHex);
+          setIsOpen(true);
+          setFocusedTab("colors");
+        }
+
+        setIsEyedropperActive(false);
+        setColorPickerHoveredElement(null);
+        setColorPickerColorHex(null);
       }
-
-      setIsEyedropperActive(false);
-      setColorPickerHoveredElement(null);
-      setColorPickerColorHex(null);
     };
 
-    document.addEventListener("click", handleClick, { capture: true });
+    document.addEventListener("click", handleEyedropperInteraction, true);
+    document.addEventListener("mousedown", handleEyedropperInteraction, true);
+    document.addEventListener("mouseup", handleEyedropperInteraction, true);
     return () => {
-      document.removeEventListener("click", handleClick, { capture: true });
+      document.removeEventListener("click", handleEyedropperInteraction, true);
+      document.removeEventListener("mousedown", handleEyedropperInteraction, true);
+      document.removeEventListener("mouseup", handleEyedropperInteraction, true);
     };
   }, [isEyedropperActive, colorPickerColorHex]);
 
@@ -397,6 +427,12 @@ export const ContentApp: React.FC = () => {
       if (key === "m") {
         e.preventDefault();
         setInspectorActive(prev => !prev);
+        setGridInspectorActive(false);
+        setTextInspectorActive(false);
+      } else if (key === "l") {
+        e.preventDefault();
+        setGridInspectorActive(prev => !prev);
+        setInspectorActive(false);
         setTextInspectorActive(false);
       } else if (key === "e") {
         e.preventDefault();
@@ -405,6 +441,7 @@ export const ContentApp: React.FC = () => {
         e.preventDefault();
         setTextInspectorActive(prev => !prev);
         setInspectorActive(false);
+        setGridInspectorActive(false);
       } else if (key === "i") {
         e.preventDefault();
         setFocusedTab("inspect");
@@ -429,6 +466,7 @@ export const ContentApp: React.FC = () => {
         setIsMenuOpen(false);
         setIsOpen(false);
         setInspectorActive(false);
+        setGridInspectorActive(false);
         setTextInspectorActive(false);
         setShowContrastTooltips(false);
         setActiveOverlayModes(new Set());
@@ -439,7 +477,7 @@ export const ContentApp: React.FC = () => {
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [isMenuOpen]);
+  }, [isMenuOpen, gridInspectorActive]);
 
   // Hover handler for Text Inspector
   useEffect(() => {
@@ -480,21 +518,22 @@ export const ContentApp: React.FC = () => {
     };
   }, [textInspectorActive]);
 
-  // Click handler for Text Inspector (select multiple elements)
+  // Click/mouse handler for Text Inspector (select multiple elements)
   useEffect(() => {
     if (!textInspectorActive) return;
 
-    const handleTextClick = (e: MouseEvent) => {
+    const handleTextInteraction = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       if (!target) return;
 
       const shadowHost = document.getElementById("accessibility-inspector-extension-root");
       if (shadowHost && shadowHost.contains(target)) return;
 
-      if (isTextElement(target)) {
-        e.preventDefault();
-        e.stopPropagation();
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
 
+      if (e.type === "click" && isTextElement(target)) {
         const alreadySelected = selectedTextElements.some(item => item.element === target);
         if (!alreadySelected) {
           try {
@@ -515,15 +554,41 @@ export const ContentApp: React.FC = () => {
       }
     };
 
-    document.addEventListener("click", handleTextClick, true);
+    document.addEventListener("click", handleTextInteraction, true);
+    document.addEventListener("mousedown", handleTextInteraction, true);
+    document.addEventListener("mouseup", handleTextInteraction, true);
     return () => {
-      document.removeEventListener("click", handleTextClick, true);
+      document.removeEventListener("click", handleTextInteraction, true);
+      document.removeEventListener("mousedown", handleTextInteraction, true);
+      document.removeEventListener("mouseup", handleTextInteraction, true);
     };
   }, [textInspectorActive, selectedTextElements]);
 
+  // Inject global grid inspector outlines when active
+  useEffect(() => {
+    if (!gridInspectorActive) return;
+
+    const styleEl = document.createElement("style");
+    styleEl.id = "accessibility-inspector-global-grid-styles";
+    styleEl.innerHTML = `
+      body *:not(#accessibility-inspector-extension-root):not(#accessibility-inspector-extension-root *) {
+        outline: 1px solid rgba(239, 68, 68, 0.25) !important;
+        outline-offset: -1px !important;
+      }
+    `;
+    document.head.appendChild(styleEl);
+
+    return () => {
+      const el = document.getElementById("accessibility-inspector-global-grid-styles");
+      if (el) {
+        el.remove();
+      }
+    };
+  }, [gridInspectorActive]);
+
   // Document hover handler (works even if sidebar is closed)
   useEffect(() => {
-    if (!inspectorActive) {
+    if (!inspectorActive && !gridInspectorActive) {
       setHoveredElement(null);
       return;
     }
@@ -553,13 +618,13 @@ export const ContentApp: React.FC = () => {
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseleave", handleMouseLeave);
     };
-  }, [inspectorActive]);
+  }, [inspectorActive, gridInspectorActive]);
 
-  // Document click handler (locks element and auto-opens sidebar to inspect tab)
+  // Document click/mouse handler (locks element and auto-opens sidebar to inspect tab)
   useEffect(() => {
-    if (!inspectorActive) return;
+    if (!inspectorActive && !gridInspectorActive) return;
 
-    const handleElementClick = (e: MouseEvent) => {
+    const handleMouseInteraction = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       if (!target) return;
 
@@ -570,28 +635,34 @@ export const ContentApp: React.FC = () => {
 
       e.preventDefault();
       e.stopPropagation();
+      e.stopImmediatePropagation();
 
-      // Check if element is already in the selected list
-      const alreadyLocked = lockedItems.some(item => item.element === target);
-      if (!alreadyLocked) {
-        try {
-          const styles = extractElementStyles(target);
-          setLockedItems(prev => [...prev, { element: target, styles }]);
-          setFocusedTab("inspect");
-          setIsOpen(true); // Always open panel when an element is locked
-        } catch (err) {
-          console.warn("Failed style extraction on click", err);
+      // Only perform locking on actual click event
+      if (e.type === "click") {
+        const alreadyLocked = lockedItems.some(item => item.element === target);
+        if (!alreadyLocked) {
+          try {
+            const styles = extractElementStyles(target);
+            setLockedItems(prev => [...prev, { element: target, styles }]);
+            setFocusedTab("inspect");
+            setIsOpen(true); // Always open panel when an element is locked
+          } catch (err) {
+            console.warn("Failed style extraction on click", err);
+          }
         }
+        setHoveredElement(null);
       }
-
-      setHoveredElement(null);
     };
 
-    document.addEventListener("click", handleElementClick, true);
+    document.addEventListener("click", handleMouseInteraction, true);
+    document.addEventListener("mousedown", handleMouseInteraction, true);
+    document.addEventListener("mouseup", handleMouseInteraction, true);
     return () => {
-      document.removeEventListener("click", handleElementClick, true);
+      document.removeEventListener("click", handleMouseInteraction, true);
+      document.removeEventListener("mousedown", handleMouseInteraction, true);
+      document.removeEventListener("mouseup", handleMouseInteraction, true);
     };
-  }, [inspectorActive, lockedItems]);
+  }, [inspectorActive, gridInspectorActive, lockedItems]);
 
   const handleClearAllLocked = () => {
     setLockedItems([]);
@@ -783,186 +854,198 @@ export const ContentApp: React.FC = () => {
 
   return (
     <>
-      {/* Hover Outline - Active even when panel is closed */}
-      {inspectorActive && hoveredElement && (
-        <InspectorOverlay element={hoveredElement} />
-      )}
+      {isMenuOpen && (
+        <>
+          {/* Hover Outline - Active even when panel is closed */}
+          {inspectorActive && hoveredElement && (
+            <InspectorOverlay element={hoveredElement} />
+          )}
 
-      {/* Selected Element Outlines - Persistent if selection locked */}
-      {lockedItems.map((item, idx) => (
-        <InspectorOverlay
-          key={`locked-${idx}-${item.element.tagName}`}
-          element={item.element}
-          borderColor="#10b981"
-          backgroundColor="rgba(16, 185, 129, 0.04)"
-          label={`selected: ${item.element.tagName.toLowerCase()}`}
-          interactive={true}
-          onClose={() => handleRemoveLockedItem(item.element)}
-        />
-      ))}
+          {/* Grid Inspector Overlay */}
+          {gridInspectorActive && hoveredElement && (
+            <InspectorOverlay element={hoveredElement} mode="grid" />
+          )}
 
-      {/* Hover Outline for Text Inspector */}
-      {textInspectorActive && hoveredTextElement && (
-        <InspectorOverlay
-          element={hoveredTextElement}
-          borderColor="#3b82f6"
-          backgroundColor="rgba(59, 130, 246, 0.05)"
-          label="text element"
-          showPopover={false}
-        />
-      )}
+          {/* Selected Element Outlines - Persistent if selection locked */}
+          {lockedItems.map((item, idx) => (
+            <InspectorOverlay
+              key={`locked-${idx}-${item.element.tagName}`}
+              element={item.element}
+              borderColor="#10b981"
+              backgroundColor="rgba(16, 185, 129, 0.04)"
+              label={`selected: ${item.element.tagName.toLowerCase()}`}
+              interactive={true}
+              onClose={() => handleRemoveLockedItem(item.element)}
+            />
+          ))}
 
-      {/* DOM Color Picker Overlay */}
-      {isEyedropperActive && colorPickerHoveredElement && (
-        <InspectorOverlay
-          element={colorPickerHoveredElement}
-          borderColor={colorPickerColorHex || "#ef4444"}
-          backgroundColor="transparent"
-          borderStyle="solid"
-          label={colorPickerColorHex ? `Color: ${colorPickerColorHex}` : "Picking..."}
-          showPopover={false}
-        />
-      )}
+          {/* Hover Outline for Text Inspector */}
+          {textInspectorActive && hoveredTextElement && (
+            <InspectorOverlay
+              element={hoveredTextElement}
+              borderColor="#3b82f6"
+              backgroundColor="rgba(59, 130, 246, 0.05)"
+              label="text element"
+              showPopover={false}
+            />
+          )}
 
-      {/* Eyedropper Magnifier Preview */}
-      {isEyedropperActive && cursorPos && (
-        <div
-          style={{
-            position: "fixed",
-            top: cursorPos.y,
-            left: cursorPos.x,
-            transform: "translate(15px, 15px)", // Offset to bottom-right of cursor
-            zIndex: 2147483647,
-            pointerEvents: "none",
-          }}
-        >
-          {/* The zoom circle */}
-          <div
-            style={{
-              width: "120px",
-              height: "120px",
-              borderRadius: "50%",
-              backgroundColor: screenshotDataUrl ? undefined : (colorPickerColorHex || "#ffffff"),
-              border: "4px solid rgba(0, 0, 0, 0.1)",
-              boxShadow: "0 0 0 1px rgba(0,0,0,0.1), 0 16px 32px rgba(0,0,0,0.2)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              position: "relative",
-              overflow: "hidden"
-            }}
-          >
-            {/* The pixel-perfect preview canvas */}
-            <canvas
-              ref={previewCanvasRef}
-              width={120}
-              height={120}
+          {/* DOM Color Picker Overlay */}
+          {isEyedropperActive && colorPickerHoveredElement && (
+            <InspectorOverlay
+              element={colorPickerHoveredElement}
+              borderColor={colorPickerColorHex || "#ef4444"}
+              backgroundColor="transparent"
+              borderStyle="solid"
+              label={colorPickerColorHex ? `Color: ${colorPickerColorHex}` : "Picking..."}
+              showPopover={false}
+            />
+          )}
+
+          {/* Eyedropper Magnifier Preview */}
+          {isEyedropperActive && cursorPos && (
+            <div
               style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                width: "100%",
-                height: "100%",
-                imageRendering: "pixelated",
-                pointerEvents: "none"
+                position: "fixed",
+                top: cursorPos.y,
+                left: cursorPos.x,
+                transform: "translate(15px, 15px)", // Offset to bottom-right of cursor
+                zIndex: 2147483647,
+                pointerEvents: "none",
+              }}
+            >
+              {/* The zoom circle */}
+              <div
+                style={{
+                  width: "120px",
+                  height: "120px",
+                  borderRadius: "50%",
+                  backgroundColor: screenshotDataUrl ? undefined : (colorPickerColorHex || "#ffffff"),
+                  border: "4px solid rgba(0, 0, 0, 0.1)",
+                  boxShadow: "0 0 0 1px rgba(0,0,0,0.1), 0 16px 32px rgba(0,0,0,0.2)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  position: "relative",
+                  overflow: "hidden"
+                }}
+              >
+                {/* The pixel-perfect preview canvas */}
+                <canvas
+                  ref={previewCanvasRef}
+                  width={120}
+                  height={120}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    height: "100%",
+                    imageRendering: "pixelated",
+                    pointerEvents: "none"
+                  }}
+                />
+                {/* The center pixel indicator */}
+                <div style={{ position: "relative", zIndex: 10, width: "8px", height: "8px", border: "1px solid white", boxShadow: "0 0 0 1px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(0,0,0,0.5)" }} />
+
+                {/* Eyedropper floating icon */}
+                <div
+                  className="absolute bg-slate-900 text-blue-400 rounded-full flex items-center justify-center shadow-xl border border-slate-700"
+                  style={{ width: "32px", height: "32px", bottom: "-4px", right: "-4px" }}
+                >
+                  <Pipette className="w-4 h-4" />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Selected Text Outlines */}
+          {textInspectorActive && selectedTextElements.map((item) => (
+            <InspectorOverlay
+              key={item.id}
+              element={item.element}
+              borderColor="#3b82f6"
+              borderStyle="dashed"
+              backgroundColor="rgba(59, 130, 246, 0.02)"
+              label={`selected text: ${item.textContent}`}
+              interactive={true}
+              showPopover={false}
+              onClose={() => {
+                setSelectedTextElements(prev => prev.filter(x => x.id !== item.id));
+                if (activeSelectedTextId === item.id) {
+                  setActiveSelectedTextId(null);
+                }
               }}
             />
-            {/* The center pixel indicator */}
-            <div style={{ position: "relative", zIndex: 10, width: "8px", height: "8px", border: "1px solid white", boxShadow: "0 0 0 1px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(0,0,0,0.5)" }} />
+          ))}
 
-            {/* Eyedropper floating icon */}
-            <div
-              className="absolute bg-slate-900 text-blue-400 rounded-full flex items-center justify-center shadow-xl border border-slate-700"
-              style={{ width: "32px", height: "32px", bottom: "-4px", right: "-4px" }}
-            >
-              <Pipette className="w-4 h-4" />
-            </div>
-          </div>
-        </div>
+          {/* Full Page Visual Overlay Tooltips – one container per element, chips side-by-side */}
+          {activeOverlayModes.size > 0 && fullPageTooltips.map((tip) => {
+            const isHovered = hoveredTooltipId === tip.id;
+            return (
+              <div
+                key={tip.id}
+                id={tip.id}
+                style={{
+                  position: "fixed",
+                  top: Math.max(0, tip.top),
+                  left: tip.left,
+                  transform: "translateX(-50%)",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "2px",
+                  pointerEvents: "none",
+                  zIndex: isHovered ? 999999 : 999998,
+                  opacity: isHovered ? 1 : 0.75,
+                  transition: "opacity 0.15s ease-in-out, z-index 0.15s ease-in-out",
+                }}
+              >
+                {/* Wrapper that holds chips + caret as a single column */}
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                  {/* Row of coloured chips */}
+                  <div style={{ display: "inline-flex", gap: "2px", borderRadius: "4px", overflow: "hidden", boxShadow: "0 2px 6px rgba(0,0,0,0.45)" }}>
+                    {tip.segments.map((seg, i) => (
+                      <span
+                        key={i}
+                        style={{
+                          backgroundColor: seg.bgColor,
+                          color: "#f8fafc",
+                          fontSize: "9px",
+                          fontWeight: "700",
+                          fontFamily: "monospace",
+                          padding: "2px 5px",
+                          lineHeight: 1.4,
+                          whiteSpace: "nowrap",
+                          borderRight: i < tip.segments.length - 1 ? "1px solid rgba(255,255,255,0.15)" : "none",
+                        }}
+                      >
+                        {seg.value}
+                      </span>
+                    ))}
+                  </div>
+                  {/* Single indicator triangle centered under the chip row */}
+                  <div style={{
+                    width: 0,
+                    height: 0,
+                    borderLeft: "5px solid transparent",
+                    borderRight: "5px solid transparent",
+                    borderTop: `5px solid ${tip.segments[0]?.bgColor ?? "#1e3a8a"}`,
+                  }} />
+                </div>
+              </div>
+            );
+          })}
+        </>
       )}
 
-      {/* Selected Text Outlines */}
-      {textInspectorActive && selectedTextElements.map((item) => (
-        <InspectorOverlay
-          key={item.id}
-          element={item.element}
-          borderColor="#3b82f6"
-          borderStyle="dashed"
-          backgroundColor="rgba(59, 130, 246, 0.02)"
-          label={`selected text: ${item.textContent}`}
-          interactive={true}
-          showPopover={false}
-          onClose={() => {
-            setSelectedTextElements(prev => prev.filter(x => x.id !== item.id));
-            if (activeSelectedTextId === item.id) {
-              setActiveSelectedTextId(null);
-            }
-          }}
-        />
-      ))}
-
-      {/* Full Page Visual Overlay Tooltips – one container per element, chips side-by-side */}
-      {activeOverlayModes.size > 0 && fullPageTooltips.map((tip) => {
-        const isHovered = hoveredTooltipId === tip.id;
-        return (
-          <div
-            key={tip.id}
-            id={tip.id}
-            style={{
-              position: "fixed",
-              top: Math.max(0, tip.top),
-              left: tip.left,
-              transform: "translateX(-50%)",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "2px",
-              pointerEvents: "none",
-              zIndex: isHovered ? 999999 : 999998,
-              opacity: isHovered ? 1 : 0.75,
-              transition: "opacity 0.15s ease-in-out, z-index 0.15s ease-in-out",
-            }}
-          >
-            {/* Wrapper that holds chips + caret as a single column */}
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-              {/* Row of coloured chips */}
-              <div style={{ display: "inline-flex", gap: "2px", borderRadius: "4px", overflow: "hidden", boxShadow: "0 2px 6px rgba(0,0,0,0.45)" }}>
-                {tip.segments.map((seg, i) => (
-                  <span                                                     
-                    key={i}
-                    style={{
-                      backgroundColor: seg.bgColor,
-                      color: "#f8fafc",
-                      fontSize: "9px",
-                      fontWeight: "700",
-                      fontFamily: "monospace",
-                      padding: "2px 5px",
-                      lineHeight: 1.4,
-                      whiteSpace: "nowrap",
-                      borderRight: i < tip.segments.length - 1 ? "1px solid rgba(255,255,255,0.15)" : "none",
-                    }}
-                  >
-                    {seg.value}
-                  </span>
-                ))}
-              </div>
-              {/* Single indicator triangle centered under the chip row */}
-              <div style={{
-                width: 0,
-                height: 0,
-                borderLeft: "5px solid transparent",
-                borderRight: "5px solid transparent",
-                borderTop: `5px solid ${tip.segments[0]?.bgColor ?? "#1e3a8a"}`,
-              }} />
-            </div>
-          </div>
-        );
-      })}
-
-      {isOpen && (
+      {isMenuOpen && isOpen && (
         <FloatingPanel
           hidden={isEyedropperActive}
           inspectorActive={inspectorActive}
-          setInspectorActive={setInspectorActive}
+          setInspectorActive={(active) => {
+            setInspectorActive(active);
+            if (active) setGridInspectorActive(false);
+          }}
           lockedItems={lockedItems}
           onRemoveLockedItem={handleRemoveLockedItem}
           onClearAllLocked={handleClearAllLocked}
@@ -1174,8 +1257,8 @@ export const ContentApp: React.FC = () => {
                           });
                         }}
                         className={`px-2 py-1 rounded-md border cursor-pointer transition-all ${isActive
-                            ? `${activeColor} text-white shadow-sm font-semibold`
-                            : "bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700"
+                          ? `${activeColor} text-white shadow-sm font-semibold`
+                          : "bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700"
                           }`}
                       >
                         {label}
@@ -1212,8 +1295,8 @@ export const ContentApp: React.FC = () => {
                       key={item.id}
                       onClick={() => setActiveSelectedTextId(item.id === activeSelectedTextId ? null : item.id)}
                       className={`flex items-center gap-1 px-2 py-0.5 rounded-md text-[9px] font-mono border cursor-pointer transition-all ${item.id === activeSelectedTextId
-                          ? "bg-blue-600/25 border-blue-500 text-blue-300"
-                          : "bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-750"
+                        ? "bg-blue-600/25 border-blue-500 text-blue-300"
+                        : "bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-750"
                         }`}
                     >
                       <span className="truncate max-w-[70px]">{item.textContent}</span>
@@ -1244,16 +1327,34 @@ export const ContentApp: React.FC = () => {
               <button
                 onClick={() => {
                   setInspectorActive(!inspectorActive);
+                  setGridInspectorActive(false);
                   setTextInspectorActive(false);
                 }}
                 className={`flex flex-col items-center justify-center w-9 h-9 rounded-md cursor-pointer transition-all ${inspectorActive
-                    ? "bg-blue-600 text-white shadow-md"
-                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+                  ? "bg-blue-600 text-white shadow-md"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
                   }`}
                 title="Hover Inspector (Key: M)"
               >
                 <MousePointer className="w-3.5 h-3.5" />
                 <span className={`text-[8px] font-bold font-mono mt-0.5 ${inspectorActive ? "text-blue-200" : "text-slate-500"}`}>M</span>
+              </button>
+
+              {/* Grid/Layout Inspector Toggle */}
+              <button
+                onClick={() => {
+                  setGridInspectorActive(!gridInspectorActive);
+                  setInspectorActive(false);
+                  setTextInspectorActive(false);
+                }}
+                className={`flex flex-col items-center justify-center w-9 h-9 rounded-md cursor-pointer transition-all ${gridInspectorActive
+                  ? "bg-purple-600 text-white shadow-md"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+                  }`}
+                title="Grid/Layout Inspector (Key: L)"
+              >
+                <Grid className="w-3.5 h-3.5" />
+                <span className={`text-[8px] font-bold font-mono mt-0.5 ${gridInspectorActive ? "text-purple-200" : "text-slate-500"}`}>L</span>
               </button>
 
               {/* Eyedropper Color Picker */}
@@ -1275,8 +1376,8 @@ export const ContentApp: React.FC = () => {
                   setInspectorActive(false);
                 }}
                 className={`flex flex-col items-center justify-center w-9 h-9 rounded-md cursor-pointer transition-all ${textInspectorActive
-                    ? "bg-blue-600 text-white shadow-md"
-                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+                  ? "bg-blue-600 text-white shadow-md"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
                   }`}
                 title="Text Inspector (Key: T)"
               >
@@ -1294,8 +1395,8 @@ export const ContentApp: React.FC = () => {
                   setIsOpen(true);
                 }}
                 className={`flex flex-col items-center justify-center w-9 h-9 rounded-md cursor-pointer transition-all ${isOpen && focusedTab === "inspect"
-                    ? "bg-slate-800 text-blue-400 border border-slate-700"
-                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+                  ? "bg-slate-800 text-blue-400 border border-slate-700"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
                   }`}
                 title="Inspect Elements (Key: I)"
               >
@@ -1310,8 +1411,8 @@ export const ContentApp: React.FC = () => {
                   setIsOpen(true);
                 }}
                 className={`flex flex-col items-center justify-center w-9 h-9 rounded-md cursor-pointer transition-all ${isOpen && focusedTab === "colors"
-                    ? "bg-slate-800 text-blue-400 border border-slate-700"
-                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+                  ? "bg-slate-800 text-blue-400 border border-slate-700"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
                   }`}
                 title="Color Analyzer (Key: C)"
               >
@@ -1326,8 +1427,8 @@ export const ContentApp: React.FC = () => {
                   setIsOpen(true);
                 }}
                 className={`flex flex-col items-center justify-center w-9 h-9 rounded-md cursor-pointer transition-all ${isOpen && focusedTab === "fonts"
-                    ? "bg-slate-800 text-blue-400 border border-slate-700"
-                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+                  ? "bg-slate-800 text-blue-400 border border-slate-700"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
                   }`}
                 title="Typography Analyzer (Key: F)"
               >
@@ -1342,8 +1443,8 @@ export const ContentApp: React.FC = () => {
                   setIsOpen(true);
                 }}
                 className={`flex flex-col items-center justify-center w-9 h-9 rounded-md cursor-pointer transition-all ${isOpen && focusedTab === "images"
-                    ? "bg-slate-800 text-blue-400 border border-slate-700"
-                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+                  ? "bg-slate-800 text-blue-400 border border-slate-700"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
                   }`}
                 title="Image Analyzer (Key: G)"
               >
@@ -1358,8 +1459,8 @@ export const ContentApp: React.FC = () => {
               <button
                 onClick={() => setIsOpen(!isOpen)}
                 className={`flex flex-col items-center justify-center w-9 h-9 rounded-md cursor-pointer transition-all ${isOpen
-                    ? "bg-blue-600 text-white shadow-md"
-                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+                  ? "bg-blue-600 text-white shadow-md"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
                   }`}
                 title="Toggle Sidebar (Key: V)"
               >
@@ -1373,6 +1474,7 @@ export const ContentApp: React.FC = () => {
                   setIsMenuOpen(false);
                   setIsOpen(false);
                   setInspectorActive(false);
+                  setGridInspectorActive(false);
                   setTextInspectorActive(false);
                   setShowContrastTooltips(false);
                 }}

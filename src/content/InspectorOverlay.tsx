@@ -10,6 +10,7 @@ interface InspectorOverlayProps {
   interactive?: boolean; // Added to enable interactions when selection is locked
   onClose?: () => void;  // Callback to close/clear lock state
   showPopover?: boolean; // Controls whether to show the hover popover
+  mode?: "default" | "grid";
 }
 
 // Fallback clipboard copying method using document.execCommand
@@ -110,11 +111,13 @@ export const InspectorOverlay: React.FC<InspectorOverlayProps> = ({
   backgroundColor = "rgba(59, 130, 246, 0.05)",
   interactive = false,
   onClose,
-  showPopover = true
+  showPopover = true,
+  mode = "default"
 }) => {
   const rect = element.getBoundingClientRect();
   const scrollY = window.scrollY;
   const scrollX = window.scrollX;
+  const style = window.getComputedStyle(element);
 
   // Extract computed styles dynamically for the popover
   let styles;
@@ -124,6 +127,24 @@ export const InspectorOverlay: React.FC<InspectorOverlayProps> = ({
     console.warn("Failed style extraction in overlay:", err);
   }
 
+  // Padding dimensions
+  const pTop = parseFloat(style.paddingTop) || 0;
+  const pRight = parseFloat(style.paddingRight) || 0;
+  const pBottom = parseFloat(style.paddingBottom) || 0;
+  const pLeft = parseFloat(style.paddingLeft) || 0;
+
+  // Margin dimensions
+  const mTop = parseFloat(style.marginTop) || 0;
+  const mRight = parseFloat(style.marginRight) || 0;
+  const mBottom = parseFloat(style.marginBottom) || 0;
+  const mLeft = parseFloat(style.marginLeft) || 0;
+
+  // Border dimensions
+  const bTop = parseFloat(style.borderTopWidth) || 0;
+  const bRight = parseFloat(style.borderRightWidth) || 0;
+  const bBottom = parseFloat(style.borderBottomWidth) || 0;
+  const bLeft = parseFloat(style.borderLeftWidth) || 0;
+
   // Position of outline
   const outlineStyle: React.CSSProperties = {
     position: "absolute",
@@ -131,16 +152,59 @@ export const InspectorOverlay: React.FC<InspectorOverlayProps> = ({
     left: rect.left + scrollX,
     width: rect.width,
     height: rect.height,
-    border: `2px ${borderStyle} ${borderColor}`,
-    backgroundColor: backgroundColor,
+    border: `2px ${mode === "grid" ? "dashed" : borderStyle} ${mode === "grid" ? "#a855f7" : borderColor}`,
+    backgroundColor: mode === "grid" ? "transparent" : backgroundColor,
     pointerEvents: "none",
     zIndex: 999999,
     boxSizing: "border-box",
   };
 
+  const marginOverlayStyle: React.CSSProperties = {
+    position: "absolute",
+    top: rect.top + scrollY - mTop,
+    left: rect.left + scrollX - mLeft,
+    width: rect.width + mLeft + mRight,
+    height: rect.height + mTop + mBottom,
+    borderTop: `${mTop}px solid rgba(249, 115, 22, 0.25)`, // Translucent orange margin
+    borderRight: `${mRight}px solid rgba(249, 115, 22, 0.25)`,
+    borderBottom: `${mBottom}px solid rgba(249, 115, 22, 0.25)`,
+    borderLeft: `${mLeft}px solid rgba(249, 115, 22, 0.25)`,
+    boxSizing: "border-box",
+    pointerEvents: "none",
+    zIndex: 999997,
+  };
+
+  const paddingOverlayStyle: React.CSSProperties = {
+    position: "absolute",
+    top: rect.top + scrollY + bTop,
+    left: rect.left + scrollX + bLeft,
+    width: rect.width - bLeft - bRight,
+    height: rect.height - bTop - bBottom,
+    borderTop: `${pTop}px solid rgba(16, 185, 129, 0.25)`, // Translucent green padding
+    borderRight: `${pRight}px solid rgba(16, 185, 129, 0.25)`,
+    borderBottom: `${pBottom}px solid rgba(16, 185, 129, 0.25)`,
+    borderLeft: `${pLeft}px solid rgba(16, 185, 129, 0.25)`,
+    boxSizing: "border-box",
+    pointerEvents: "none",
+    zIndex: 999998,
+  };
+
+  const contentOverlayStyle: React.CSSProperties = {
+    position: "absolute",
+    top: rect.top + scrollY + bTop + pTop,
+    left: rect.left + scrollX + bLeft + pLeft,
+    width: Math.max(0, rect.width - bLeft - bRight - pLeft - pRight),
+    height: Math.max(0, rect.height - bTop - bBottom - pTop - pBottom),
+    backgroundColor: "rgba(59, 130, 246, 0.15)", // Translucent blue content
+    border: "1px dashed rgba(59, 130, 246, 0.35)",
+    boxSizing: "border-box",
+    pointerEvents: "none",
+    zIndex: 999999,
+  };
+
   // Position of popover (placed to the side if room, else above/below)
   const popoverWidth = 280;
-  const popoverHeight = 320;
+  const popoverHeight = mode === "grid" ? 340 : 320;
   const margin = 12;
 
   const spaceRight = window.innerWidth - rect.right;
@@ -274,6 +338,21 @@ export const InspectorOverlay: React.FC<InspectorOverlayProps> = ({
 
   return (
     <>
+      {/* Margin Visual Overlay */}
+      {mode === "grid" && (mTop > 0 || mRight > 0 || mBottom > 0 || mLeft > 0) && (
+        <div style={marginOverlayStyle} />
+      )}
+
+      {/* Padding Visual Overlay */}
+      {mode === "grid" && (pTop > 0 || pRight > 0 || pBottom > 0 || pLeft > 0) && (
+        <div style={paddingOverlayStyle} />
+      )}
+
+      {/* Content Visual Overlay */}
+      {mode === "grid" && (
+        <div style={contentOverlayStyle} />
+      )}
+
       {/* Dashed outline around element */}
       <div style={outlineStyle} />
 
@@ -304,7 +383,7 @@ export const InspectorOverlay: React.FC<InspectorOverlayProps> = ({
           {/* Header Row */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #1C2B3C", paddingBottom: "8px", marginBottom: "12px" }}>
             <div style={{ display: "flex", alignItems: "baseline", gap: "6px", overflow: "hidden", whiteSpace: "nowrap", marginRight: "8px" }}>
-              <span style={{ fontWeight: "bold", color: "#D0BCFF", fontSize: "13px", fontFamily: "monospace" }}>
+              <span style={{ fontWeight: "bold", color: mode === "grid" ? "#a855f7" : "#D0BCFF", fontSize: "13px", fontFamily: "monospace" }}>
                 {labelTag}
               </span>
               <span style={{ color: "#64748B", fontSize: "11px", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -317,11 +396,12 @@ export const InspectorOverlay: React.FC<InspectorOverlayProps> = ({
                 borderRadius: "4px", 
                 padding: "2px 6px", 
                 fontSize: "9px", 
-                color: "#94A3B8", 
+                color: mode === "grid" ? "#a855f7" : "#94A3B8", 
                 fontFamily: "monospace",
-                letterSpacing: "0.5px"
+                letterSpacing: "0.5px",
+                fontWeight: "bold"
               }}>
-                LUME v1.0
+                {mode === "grid" ? "GRID / LAYOUT" : "LUME v1.0"}
               </span>
               {interactive && onClose && (
                 <button
@@ -353,233 +433,380 @@ export const InspectorOverlay: React.FC<InspectorOverlayProps> = ({
             </div>
           </div>
 
-          {/* Typography Row */}
-          <div style={{ marginBottom: "12px" }}>
-            <div style={{ color: "#94A3B8", fontSize: "9px", fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "8px", display: "flex", alignItems: "center", gap: "4px" }}>
-              <span style={{ fontFamily: "serif", fontSize: "11px", fontStyle: "italic", fontWeight: "bold" }}>Tt</span> TYPOGRAPHY
-            </div>
-            
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-              <div>
-                <div style={{ color: "#64748B", fontSize: "8px", letterSpacing: "0.5px", marginBottom: "2px" }}>FAMILY</div>
-                <div style={{ color: "#F1F5F9", fontSize: "11px", fontWeight: "500", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={styles.fontFamily}>
-                  <CopyableValue 
-                    value={styles.fontFamilyChain[0] || styles.fontFamily} 
-                    label="Font Family" 
-                    interactive={interactive} 
-                  />
-                </div>
-              </div>
-              <div>
-                <div style={{ color: "#64748B", fontSize: "8px", letterSpacing: "0.5px", marginBottom: "2px" }}>SIZE / LEADING</div>
-                <div style={{ color: "#F1F5F9", fontSize: "11px", fontWeight: "500", fontFamily: "monospace" }}>
-                  <CopyableValue 
-                    value={`${styles.fontSize} / ${styles.lineHeight === "normal" ? "normal" : styles.lineHeight}`} 
-                    label="Font Size / Leading" 
-                    interactive={interactive} 
-                  />
-                </div>
-              </div>
-              <div>
-                <div style={{ color: "#64748B", fontSize: "8px", letterSpacing: "0.5px", marginBottom: "2px" }}>WEIGHT</div>
-                <div style={{ color: "#F1F5F9", fontSize: "11px", fontWeight: "500", fontFamily: "monospace" }}>
-                  <CopyableValue 
-                    value={styles.fontWeight} 
-                    displayValue={getWeightName(styles.fontWeight)}
-                    label="Font Weight" 
-                    interactive={interactive} 
-                  />
-                </div>
-              </div>
-              <div>
-                <div style={{ color: "#64748B", fontSize: "8px", letterSpacing: "0.5px", marginBottom: "2px" }}>STYLE</div>
-                <div style={{ color: "#F1F5F9", fontSize: "11px", fontWeight: "500", fontFamily: "monospace" }}>
-                  <CopyableValue 
-                    value={styles.fontStyle} 
-                    displayValue={styles.fontStyle.charAt(0).toUpperCase() + styles.fontStyle.slice(1)}
-                    label="Font Style" 
-                    interactive={interactive} 
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Appearance Row */}
-          <div style={{ marginBottom: "12px", borderTop: "1px solid #1C2B3C", paddingTop: "8px" }}>
-            <div style={{ color: "#94A3B8", fontSize: "9px", fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "8px" }}>
-              🎨 APPEARANCE
-            </div>
-            
-            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-              {/* Primary Color */}
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                  <div style={{ width: "12px", height: "12px", borderRadius: "3px", backgroundColor: styles.color, border: "1px solid rgba(255,255,255,0.15)" }} />
-                  <span style={{ color: "#94A3B8", fontSize: "11px" }}>Primary Color</span>
-                </div>
-                <span style={{ color: "#F1F5F9", fontSize: "11px", fontFamily: "monospace" }}>
-                  <CopyableValue 
-                    value={rgbToHex(styles.textColorRGB)} 
-                    label="Primary Color Hex" 
-                    interactive={interactive} 
-                  />
-                </span>
-              </div>
-              
-              {/* Background */}
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                  <div style={{ width: "12px", height: "12px", borderRadius: "3px", backgroundColor: styles.backgroundColor, border: "1px solid rgba(255,255,255,0.15)" }} />
-                  <span style={{ color: "#94A3B8", fontSize: "11px" }}>Background</span>
-                </div>
-                <span style={{ color: "#F1F5F9", fontSize: "11px", fontFamily: "monospace" }}>
-                  <CopyableValue 
-                    value={rgbToHex(styles.bgColorRGB)} 
-                    label="Background Color Hex" 
-                    interactive={interactive} 
-                  />
-                </span>
-              </div>
-
-              {/* Contrast */}
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                  <div style={{ width: "12px", height: "12px", borderRadius: "50%", backgroundColor: contrastColor, border: "1px solid rgba(255,255,255,0.15)" }} />
-                  <span style={{ color: "#94A3B8", fontSize: "11px" }}>Contrast Ratio</span>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                  <span style={{ color: contrastColor, fontSize: "11px", fontWeight: "bold", fontFamily: "monospace" }}>
+          {/* Grid Layout specialized rendering */}
+          {mode === "grid" ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+              {/* Dimensions and Display Type */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+                <div>
+                  <div style={{ color: "#64748B", fontSize: "8px", letterSpacing: "0.5px", marginBottom: "2px", textTransform: "uppercase" }}>Dimensions</div>
+                  <div style={{ color: "#F1F5F9", fontSize: "12px", fontWeight: "bold", fontFamily: "monospace" }}>
                     <CopyableValue 
-                      value={`${contrastRatio.toFixed(2)}:1`} 
-                      label="Contrast Ratio" 
+                      value={`${styles.dimensions.width} × ${styles.dimensions.height}`} 
+                      label="Dimensions" 
+                      interactive={interactive} 
+                    />
+                  </div>
+                </div>
+                <div>
+                  <div style={{ color: "#64748B", fontSize: "8px", letterSpacing: "0.5px", marginBottom: "2px", textTransform: "uppercase" }}>Display</div>
+                  <div style={{ color: "#a855f7", fontSize: "12px", fontWeight: "bold", fontFamily: "monospace" }}>
+                    <CopyableValue 
+                      value={styles.display} 
+                      label="Display" 
+                      interactive={interactive} 
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Paddings & Margins Detailed List */}
+              <div style={{ borderTop: "1px solid #1C2B3C", paddingTop: "8px" }}>
+                <div style={{ color: "#94A3B8", fontSize: "9px", fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "6px" }}>
+                  📐 BOX MODEL SPACING
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px", fontSize: "10px", fontFamily: "monospace" }}>
+                  {/* Padding Row */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", backgroundColor: "rgba(16, 185, 129, 0.08)", padding: "4px 8px", borderRadius: "4px", border: "1px solid rgba(16, 185, 129, 0.15)" }}>
+                    <span style={{ color: "#10b981", fontWeight: "bold" }}>PADDING</span>
+                    <span style={{ color: "#F1F5F9" }} title={`T: ${style.paddingTop} R: ${style.paddingRight} B: ${style.paddingBottom} L: ${style.paddingLeft}`}>
+                      <CopyableValue 
+                        value={styles.padding} 
+                        label="Padding Shorthand" 
+                        interactive={interactive} 
+                      />
+                    </span>
+                  </div>
+
+                  {/* Margin Row */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", backgroundColor: "rgba(249, 115, 22, 0.08)", padding: "4px 8px", borderRadius: "4px", border: "1px solid rgba(249, 115, 22, 0.15)" }}>
+                    <span style={{ color: "#f97316", fontWeight: "bold" }}>MARGIN</span>
+                    <span style={{ color: "#F1F5F9" }} title={`T: ${style.marginTop} R: ${style.marginRight} B: ${style.marginBottom} L: ${style.marginLeft}`}>
+                      <CopyableValue 
+                        value={styles.margin} 
+                        label="Margin Shorthand" 
+                        interactive={interactive} 
+                      />
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Gap and Roundness */}
+              <div style={{ borderTop: "1px solid #1C2B3C", paddingTop: "8px" }}>
+                <div style={{ color: "#94A3B8", fontSize: "9px", fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "6px" }}>
+                  ⚙️ LAYOUT PROPERTIES
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+                  <div>
+                    <div style={{ color: "#64748B", fontSize: "8px", letterSpacing: "0.5px", marginBottom: "2px" }}>GAP</div>
+                    <div style={{ color: "#F1F5F9", fontSize: "11px", fontWeight: "500", fontFamily: "monospace" }}>
+                      <CopyableValue 
+                        value={styles.gap} 
+                        label="Gap" 
+                        interactive={interactive} 
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ color: "#64748B", fontSize: "8px", letterSpacing: "0.5px", marginBottom: "2px" }}>ROUNDNESS</div>
+                    <div style={{ color: "#F1F5F9", fontSize: "11px", fontWeight: "500", fontFamily: "monospace" }}>
+                      <CopyableValue 
+                        value={styles.borderRadius} 
+                        label="Border Radius" 
+                        interactive={interactive} 
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Text Properties */}
+              <div style={{ borderTop: "1px solid #1C2B3C", paddingTop: "8px", marginBottom: "2px" }}>
+                <div style={{ color: "#94A3B8", fontSize: "9px", fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "6px" }}>
+                  Tt TEXT PROPERTIES
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.8fr", gap: "8px" }}>
+                  <div>
+                    <div style={{ color: "#64748B", fontSize: "8px", letterSpacing: "0.5px", marginBottom: "2px" }}>FONT FAMILY</div>
+                    <div style={{ color: "#F1F5F9", fontSize: "10px", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={styles.fontFamily}>
+                      <CopyableValue 
+                        value={styles.fontFamilyChain[0] || styles.fontFamily} 
+                        label="Font Family" 
+                        interactive={interactive} 
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ color: "#64748B", fontSize: "8px", letterSpacing: "0.5px", marginBottom: "2px" }}>SIZE / WT</div>
+                    <div style={{ color: "#F1F5F9", fontSize: "10px", fontFamily: "monospace" }}>
+                      <CopyableValue 
+                        value={`${styles.fontSize} / ${styles.fontWeight}`} 
+                        label="Font Size / Weight" 
+                        interactive={interactive} 
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "6px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <div style={{ width: "10px", height: "10px", borderRadius: "2px", backgroundColor: styles.color, border: "1px solid rgba(255,255,255,0.15)" }} />
+                    <span style={{ color: "#94A3B8", fontSize: "10px" }}>Text Color</span>
+                  </div>
+                  <span style={{ color: "#F1F5F9", fontSize: "10px", fontFamily: "monospace" }}>
+                    <CopyableValue 
+                      value={rgbToHex(styles.textColorRGB)} 
+                      label="Text Color" 
                       interactive={interactive} 
                     />
                   </span>
-                  <span style={{ 
-                    fontSize: "8px", 
-                    color: "#0B1329", 
-                    backgroundColor: contrastColor, 
-                    padding: "1px 4px", 
-                    borderRadius: "3px",
-                    fontWeight: "bold",
-                    fontFamily: "monospace"
-                  }}>
-                    {aaPassed ? "PASS" : "FAIL"}
-                  </span>
                 </div>
               </div>
-            </div>
-          </div>
 
-          {/* Box Model Row */}
-          <div style={{ marginBottom: "12px", borderTop: "1px solid #1C2B3C", paddingTop: "8px" }}>
-            <div style={{ color: "#94A3B8", fontSize: "9px", fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "8px" }}>
-              📐 BOX MODEL
-            </div>
-            
-            <div style={{ 
-              border: "1px dashed rgba(148, 163, 184, 0.3)", 
-              borderRadius: "4px", 
-              padding: "10px", 
-              position: "relative",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              marginBottom: "8px",
-              backgroundColor: "rgba(30, 41, 59, 0.1)"
-            }}>
-              <span style={{ position: "absolute", top: "2px", left: "6px", fontSize: "8px", color: "#64748B", fontFamily: "monospace" }}>
-                margin: <CopyableValue value={styles.margin} label="Margin shorthand" interactive={interactive} />
-              </span>
-              
-              <div style={{ 
-                border: "1px solid rgba(148, 163, 184, 0.25)", 
-                borderRadius: "3px", 
-                padding: "8px 12px", 
-                width: "90%",
-                boxSizing: "border-box",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-                position: "relative",
-                backgroundColor: "rgba(30, 41, 59, 0.15)"
-              }}>
-                <span style={{ position: "absolute", top: "2px", left: "6px", fontSize: "8px", color: "#64748B", fontFamily: "monospace" }}>
-                  padding: <CopyableValue value={styles.padding} label="Padding shorthand" interactive={interactive} />
+              {/* Footer Indicator */}
+              <div style={{ borderTop: "1px solid #1C2B3C", paddingTop: "8px", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "9px" }}>
+                <span style={{ color: "#64748B" }}>ⓘ Hovering Grid Overlay</span>
+                <span style={{ color: "#a855f7", display: "flex", alignItems: "center", gap: "4px", fontWeight: "bold", letterSpacing: "0.5px" }}>
+                  <span className="inspecting-dot-blink" style={{ width: "6px", height: "6px", backgroundColor: "#a855f7", borderRadius: "50%", display: "inline-block" }} />
+                  GRID ACTIVE
                 </span>
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* Typography Row */}
+              <div style={{ marginBottom: "12px" }}>
+                <div style={{ color: "#94A3B8", fontSize: "9px", fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "8px", display: "flex", alignItems: "center", gap: "4px" }}>
+                  <span style={{ fontFamily: "serif", fontSize: "11px", fontStyle: "italic", fontWeight: "bold" }}>Tt</span> TYPOGRAPHY
+                </div>
+                
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+                  <div>
+                    <div style={{ color: "#64748B", fontSize: "8px", letterSpacing: "0.5px", marginBottom: "2px" }}>FAMILY</div>
+                    <div style={{ color: "#F1F5F9", fontSize: "11px", fontWeight: "500", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={styles.fontFamily}>
+                      <CopyableValue 
+                        value={styles.fontFamilyChain[0] || styles.fontFamily} 
+                        label="Font Family" 
+                        interactive={interactive} 
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ color: "#64748B", fontSize: "8px", letterSpacing: "0.5px", marginBottom: "2px" }}>SIZE / LEADING</div>
+                    <div style={{ color: "#F1F5F9", fontSize: "11px", fontWeight: "500", fontFamily: "monospace" }}>
+                      <CopyableValue 
+                        value={`${styles.fontSize} / ${styles.lineHeight === "normal" ? "normal" : styles.lineHeight}`} 
+                        label="Font Size / Leading" 
+                        interactive={interactive} 
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ color: "#64748B", fontSize: "8px", letterSpacing: "0.5px", marginBottom: "2px" }}>WEIGHT</div>
+                    <div style={{ color: "#F1F5F9", fontSize: "11px", fontWeight: "500", fontFamily: "monospace" }}>
+                      <CopyableValue 
+                        value={styles.fontWeight} 
+                        displayValue={getWeightName(styles.fontWeight)}
+                        label="Font Weight" 
+                        interactive={interactive} 
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ color: "#64748B", fontSize: "8px", letterSpacing: "0.5px", marginBottom: "2px" }}>STYLE</div>
+                    <div style={{ color: "#F1F5F9", fontSize: "11px", fontWeight: "500", fontFamily: "monospace" }}>
+                      <CopyableValue 
+                        value={styles.fontStyle} 
+                        displayValue={styles.fontStyle.charAt(0).toUpperCase() + styles.fontStyle.slice(1)}
+                        label="Font Style" 
+                        interactive={interactive} 
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Appearance Row */}
+              <div style={{ marginBottom: "12px", borderTop: "1px solid #1C2B3C", paddingTop: "8px" }}>
+                <div style={{ color: "#94A3B8", fontSize: "9px", fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "8px" }}>
+                  🎨 APPEARANCE
+                </div>
+                
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                  {/* Primary Color */}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <div style={{ width: "12px", height: "12px", borderRadius: "3px", backgroundColor: styles.color, border: "1px solid rgba(255,255,255,0.15)" }} />
+                      <span style={{ color: "#94A3B8", fontSize: "11px" }}>Primary Color</span>
+                    </div>
+                    <span style={{ color: "#F1F5F9", fontSize: "11px", fontFamily: "monospace" }}>
+                      <CopyableValue 
+                        value={rgbToHex(styles.textColorRGB)} 
+                        label="Primary Color Hex" 
+                        interactive={interactive} 
+                      />
+                    </span>
+                  </div>
+                  
+                  {/* Background */}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <div style={{ width: "12px", height: "12px", borderRadius: "3px", backgroundColor: styles.backgroundColor, border: "1px solid rgba(255,255,255,0.15)" }} />
+                      <span style={{ color: "#94A3B8", fontSize: "11px" }}>Background</span>
+                    </div>
+                    <span style={{ color: "#F1F5F9", fontSize: "11px", fontFamily: "monospace" }}>
+                      <CopyableValue 
+                        value={rgbToHex(styles.bgColorRGB)} 
+                        label="Background Color Hex" 
+                        interactive={interactive} 
+                      />
+                    </span>
+                  </div>
+
+                  {/* Contrast */}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <div style={{ width: "12px", height: "12px", borderRadius: "50%", backgroundColor: contrastColor, border: "1px solid rgba(255,255,255,0.15)" }} />
+                      <span style={{ color: "#94A3B8", fontSize: "11px" }}>Contrast Ratio</span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      <span style={{ color: contrastColor, fontSize: "11px", fontWeight: "bold", fontFamily: "monospace" }}>
+                        <CopyableValue 
+                          value={`${contrastRatio.toFixed(2)}:1`} 
+                          label="Contrast Ratio" 
+                          interactive={interactive} 
+                        />
+                      </span>
+                      <span style={{ 
+                        fontSize: "8px", 
+                        color: "#0B1329", 
+                        backgroundColor: contrastColor, 
+                        padding: "1px 4px", 
+                        borderRadius: "3px",
+                        fontWeight: "bold",
+                        fontFamily: "monospace"
+                      }}>
+                        {aaPassed ? "PASS" : "FAIL"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Box Model Row */}
+              <div style={{ marginBottom: "12px", borderTop: "1px solid #1C2B3C", paddingTop: "8px" }}>
+                <div style={{ color: "#94A3B8", fontSize: "9px", fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "8px" }}>
+                  📐 BOX MODEL
+                </div>
                 
                 <div style={{ 
-                  backgroundColor: "rgba(208, 188, 255, 0.15)", 
-                  border: "1px solid rgba(208, 188, 255, 0.3)",
-                  borderRadius: "2px",
-                  padding: "4px 8px",
-                  fontSize: "10px",
-                  color: "#D0BCFF",
-                  fontFamily: "monospace",
-                  fontWeight: "bold",
-                  textAlign: "center",
-                  width: "100%",
-                  boxSizing: "border-box"
+                  border: "1px dashed rgba(148, 163, 184, 0.3)", 
+                  borderRadius: "4px", 
+                  padding: "10px", 
+                  position: "relative",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  marginBottom: "8px",
+                  backgroundColor: "rgba(30, 41, 59, 0.1)"
                 }}>
-                  <CopyableValue 
-                    value={`${styles.dimensions.width} × ${styles.dimensions.height}`} 
-                    label="Width × Height" 
-                    interactive={interactive} 
-                  />
+                  <span style={{ position: "absolute", top: "2px", left: "6px", fontSize: "8px", color: "#64748B", fontFamily: "monospace" }}>
+                    margin: <CopyableValue value={styles.margin} label="Margin shorthand" interactive={interactive} />
+                  </span>
+                  
+                  <div style={{ 
+                    border: "1px solid rgba(148, 163, 184, 0.25)", 
+                    borderRadius: "3px", 
+                    padding: "8px 12px", 
+                    width: "90%",
+                    boxSizing: "border-box",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    position: "relative",
+                    backgroundColor: "rgba(30, 41, 59, 0.15)"
+                  }}>
+                    <span style={{ position: "absolute", top: "2px", left: "6px", fontSize: "8px", color: "#64748B", fontFamily: "monospace" }}>
+                      padding: <CopyableValue value={styles.padding} label="Padding shorthand" interactive={interactive} />
+                    </span>
+                    
+                    <div style={{ 
+                      backgroundColor: "rgba(208, 188, 255, 0.15)", 
+                      border: "1px solid rgba(208, 188, 255, 0.3)",
+                      borderRadius: "2px",
+                      padding: "4px 8px",
+                      fontSize: "10px",
+                      color: "#D0BCFF",
+                      fontFamily: "monospace",
+                      fontWeight: "bold",
+                      textAlign: "center",
+                      width: "100%",
+                      boxSizing: "border-box"
+                    }}>
+                      <CopyableValue 
+                        value={`${styles.dimensions.width} × ${styles.dimensions.height}`} 
+                        label="Width × Height" 
+                        interactive={interactive} 
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "space-between", color: "#64748B", fontSize: "10px", fontFamily: "monospace" }}>
+                  <div>
+                    <span>Width</span>
+                    <span style={{ color: "#F1F5F9", marginLeft: "8px" }}>
+                      <CopyableValue 
+                        value={`${styles.dimensions.width.toFixed(1)}px`} 
+                        label="Element Width" 
+                        interactive={interactive} 
+                      />
+                    </span>
+                  </div>
+                  <div>
+                    <span>Height</span>
+                    <span style={{ color: "#F1F5F9", marginLeft: "8px" }}>
+                      <CopyableValue 
+                        value={`${styles.dimensions.height.toFixed(1)}px`} 
+                        label="Element Height" 
+                        interactive={interactive} 
+                      />
+                    </span>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div style={{ display: "flex", justifyContent: "space-between", color: "#64748B", fontSize: "10px", fontFamily: "monospace" }}>
-              <div>
-                <span>Width</span>
-                <span style={{ color: "#F1F5F9", marginLeft: "8px" }}>
-                  <CopyableValue 
-                    value={`${styles.dimensions.width.toFixed(1)}px`} 
-                    label="Element Width" 
-                    interactive={interactive} 
-                  />
+              {/* Footer Action */}
+              <div style={{ 
+                borderTop: "1px solid #1C2B3C", 
+                paddingTop: "8px", 
+                display: "flex", 
+                justifyContent: "space-between", 
+                alignItems: "center",
+                fontSize: "9px"
+              }}>
+                <span style={{ color: "#64748B", display: "flex", alignItems: "center", gap: "3px" }}>
+                  ⓘ Alt + Click to Lock
+                </span>
+                <span style={{ color: "#10b981", display: "flex", alignItems: "center", gap: "4px", fontWeight: "bold", letterSpacing: "0.5px" }}>
+                  <span className="inspecting-dot-blink" style={{ 
+                    width: "6px", 
+                    height: "6px", 
+                    backgroundColor: "#10b981", 
+                    borderRadius: "50%",
+                    display: "inline-block"
+                  }} />
+                  INSPECTING
                 </span>
               </div>
-              <div>
-                <span>Height</span>
-                <span style={{ color: "#F1F5F9", marginLeft: "8px" }}>
-                  <CopyableValue 
-                    value={`${styles.dimensions.height.toFixed(1)}px`} 
-                    label="Element Height" 
-                    interactive={interactive} 
-                  />
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Footer Action */}
-          <div style={{ 
-            borderTop: "1px solid #1C2B3C", 
-            paddingTop: "8px", 
-            display: "flex", 
-            justifyContent: "space-between", 
-            alignItems: "center",
-            fontSize: "9px"
-          }}>
-            <span style={{ color: "#64748B", display: "flex", alignItems: "center", gap: "3px" }}>
-              ⓘ Alt + Click to Lock
-            </span>
-            <span style={{ color: "#10b981", display: "flex", alignItems: "center", gap: "4px", fontWeight: "bold", letterSpacing: "0.5px" }}>
-              <span className="inspecting-dot-blink" style={{ 
-                width: "6px", 
-                height: "6px", 
-                backgroundColor: "#10b981", 
-                borderRadius: "50%",
-                display: "inline-block"
-              }} />
-              INSPECTING
-            </span>
-          </div>
+            </>
+          )}
         </div>
       )}
     </>

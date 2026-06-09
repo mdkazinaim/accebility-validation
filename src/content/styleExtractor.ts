@@ -25,6 +25,9 @@ export interface ElementStyles {
   dimensions: { width: number; height: number };
   margin: string;
   padding: string;
+  gap: string;
+  borderRadius: string;
+  display: string;
 }
 
 
@@ -229,6 +232,19 @@ export function extractElementStyles(element: HTMLElement): ElementStyles {
   const margin = getShorthand(style.marginTop, style.marginRight, style.marginBottom, style.marginLeft);
   const padding = getShorthand(style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft);
 
+  let borderRadius = style.borderRadius;
+  if (!borderRadius || borderRadius === "0px") {
+    const tl = style.borderTopLeftRadius;
+    const tr = style.borderTopRightRadius;
+    const br = style.borderBottomRightRadius;
+    const bl = style.borderBottomLeftRadius;
+    if (tl !== "0px" || tr !== "0px" || br !== "0px" || bl !== "0px") {
+      borderRadius = `${tl} ${tr} ${br} ${bl}`;
+    } else {
+      borderRadius = "0px";
+    }
+  }
+
   return {
     tagName: element.tagName.toLowerCase(),
     className: element.className,
@@ -251,6 +267,9 @@ export function extractElementStyles(element: HTMLElement): ElementStyles {
       height: Math.round(rect.height)
     },
     margin,
-    padding
+    padding,
+    gap: style.gap || (style.columnGap && style.rowGap ? `${style.rowGap} ${style.columnGap}` : style.columnGap || style.rowGap || "normal"),
+    borderRadius,
+    display: style.display
   };
 }
